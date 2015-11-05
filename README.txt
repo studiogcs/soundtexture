@@ -6,6 +6,17 @@ README.txt
 - files
 	McDermott: contains sound synthesis texture toolbox (Matlab)
 
+- RECORDINGS: ~10-20min
+	- coffee shop/restaurant
+	- caltrain
+		- from platform
+		- within train
+	- memchu
+	- library
+	- running water
+	- crickets
+	- traffic
+
 PROCEDURE
 
 - use stationary signals
@@ -15,3 +26,4 @@ PROCEDURE
 	- for each band, take amplitude envelope via LPF
 	- compressive nonlinearity
 	- modulation filtering
+
