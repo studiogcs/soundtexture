@@ -165,7 +165,7 @@ def make_corr_filters(N, fs, intervals):
 			h_ind = np.max(np.where(f < h))
 			if l_ind < h_ind:
 				filters[0:l_ind-1, i] = np.ones(l_ind-1)
-				filters[l_ind:h_ind, i] = np.cos( ( f[ l_ind:h_ind ] - f[ l_ind ] ) / ( f[l_ind] - f[ h_ind ] ) * np.pi/2 )
+				filters[l_ind-1:h_ind, i] = np.cos( ( f[ l_ind-1:h_ind ] - f[ l_ind ] ) / ( f[l_ind] - f[ h_ind ] ) * np.pi/2 )
 			else:
 				filters[0:l_ind-1,i] = np.ones(l_ind-1)
 
@@ -200,6 +200,7 @@ def compute_statistics(soundfile, fs, N):
 	subband_resampled[subband_resampled < 0] = 0
 
 	# make modulation filters
+	print 'computing modulation filters...'
 	num_mod_channels = g_num_mod_channels
 	mod_len = dsamp_len
 	mod_low = g_low_mod_limit
@@ -209,6 +210,7 @@ def compute_statistics(soundfile, fs, N):
 	mod_filters = make_log2_cos_filters(mod_len, env_fs, num_mod_channels, mod_cutoffs)
 
 	# make autocorrelation filters
+	print 'computing autocorrelation filters...'
 	intervals = g_corr_env_intervals
 	corr_filters = make_corr_filters(mod_len, env_fs, intervals)
 
