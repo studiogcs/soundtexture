@@ -10,8 +10,7 @@ import numpy as np
 from scipy.io.wavfile import read
 from scipy.signal import hilbert, resample
 
-# DEBUG
-from matplotlib import pyplot as plt
+from matplotlib import pyplot as plt 	# for debugging
 
 # Globals --------------------------------------------------------------------------
 g_rms = 0.01					# desired root mean square
@@ -23,6 +22,8 @@ g_num_mod_channels = 20
 g_low_mod_limit = 0.5
 g_Q = 2
 g_corr_env_intervals = np.array([1, 2, 3, 4, 5, 6, 7, 9, 11, 14, 18, 22, 28, 36, 45, 57, 73, 92, 116, 148, 187, 237, 301])
+g_low_c2_limit = 1
+
 # Locals ----------------------------------------------------------------------------
 
 # Loads a wav file from the complete path
@@ -80,7 +81,7 @@ def make_erb_cos_filters(N, fs, num_bands, cutoffs):
 	f = np.arange(0,N_f) * nyquist / N_f 
 	filters = np.zeros( (N_f + 1, num_bands + 2) )
 
-	for i in range(0,num_bands-1):
+	for i in range(0,num_bands):
 		l = cutoffs[ i ]
 		h = cutoffs[ i + 2 ]
 		l_ind = np.min(np.where(f > l))
@@ -89,10 +90,10 @@ def make_erb_cos_filters(N, fs, num_bands, cutoffs):
 		filters[l_ind:h_ind, i + 1] = np.cos( ( freq2erb( f[ l_ind:h_ind ] ) - avg ) / ( freq2erb(l) - freq2erb(h)) * np.pi )
 
 	# add HPF as first low end and LPF for high end of the bandwidth
-	l_ind = np.min(np.where(f > cutoffs[num_bands-1]))
+	l_ind = np.min(np.where(f > cutoffs[num_bands]))
 	h_ind = np.max(np.where(f < cutoffs[1]))
 	filters[0:h_ind,0] = np.sqrt( 1 - filters[0:h_ind,1] ** 2 )
-	filters[l_ind:, num_bands+1] = np.sqrt( 1 - filters[l_ind:,num_bands-1] ** 2 )
+	filters[l_ind:, num_bands+1] = np.sqrt( 1 - filters[l_ind:, num_bands] ** 2 )
 	
 	return filters
 
@@ -110,8 +111,8 @@ def make_subbands(x, filters):
 
 	return np.real(np.fft.ifft(fft_subbands.T).T)
 
-# constant Q logarithmically spaced cosine filters
-def make_log2_cos_filters(N, fs, num_bands, cutoffs):
+# Constant Q logarithmically spaced cosine filters
+def make_octave_cos_filters(N, fs, num_bands, cutoffs):
 
 	if N % 2 == 0:
 		N_f = N / 2
@@ -123,7 +124,7 @@ def make_log2_cos_filters(N, fs, num_bands, cutoffs):
 	filters = np.zeros( (N_f + 1, num_bands) )
 
 	Q = g_Q
-	for i in range(0, num_bands-1):
+	for i in range(0, num_bands):
 		bw = cutoffs[ i ] * 1. / Q
 		l = cutoffs[ i ] - bw
 		h = cutoffs[ i ] + bw
@@ -150,7 +151,7 @@ def make_corr_filters(N, fs, intervals):
 	num_bands = len(intervals)
 	filters = np.zeros( (N_f + 1, num_bands) )
 
-	for i in range(0,num_bands-1):
+	for i in range(0,num_bands):
 		if i == 0:
 			h = 1./ (4.*intervals[i] / 1000)
 			l = .5 / (4.*intervals[i]/1000)
@@ -171,8 +172,32 @@ def make_corr_filters(N, fs, intervals):
 
 	return filters
 
+def make_octave_corr_filters(N, fs, cutoffs):
+
+	if N % 2 == 0:
+		N_f = N / 2
+		nyquist = 1. * fs / 2
+	else:
+		N_f = (N  - 1) / 2
+		nyquist = 1. * fs/2 * (1-1/N)	
+	f = np.arange(0,N_f) * nyquist  / N_f 
+
+	center_freqs = cutoffs[0:-1]
+	num_bands = len(center_freqs)
+
+	filters = np.zeros( (N_f+1, num_bands) )
+
+	for i in range(0, num_bands):
+		l = 1. * center_freqs[i] / 2
+		h = cutoffs[i] * 2.
+		l_ind = np.min(np.where(f > l))
+		h_ind = np.max(np.where(f < h))
+		avg = (np.log2(l) + np.log2(h)) / 2
+		filters[l_ind:h_ind, i] = np.cos( ( np.log2( f[l_ind:h_ind] ) - avg ) / ( np.log2(h) - np.log2(l) ) * np.pi )
+
+	return filters, center_freqs
+
 def compute_statistics(soundfile, fs, N):
-	stats = []
 	N = len(soundfile)
 	num_audio_channels = g_num_audio_channels
 
@@ -207,12 +232,24 @@ def compute_statistics(soundfile, fs, N):
 	mod_high = 1. * env_fs / 2
 	ds = (np.log2(mod_high) - np.log2(mod_low)) / (num_mod_channels - 1) 
 	mod_cutoffs = 2**( np.arange( np.log2(mod_low),  np.log2(mod_high) + ds, ds) )
-	mod_filters = make_log2_cos_filters(mod_len, env_fs, num_mod_channels, mod_cutoffs)
+	mod_filters = make_octave_cos_filters(mod_len, env_fs, num_mod_channels, mod_cutoffs)
 
 	# make autocorrelation filters
 	print 'computing autocorrelation filters...'
 	intervals = g_corr_env_intervals
 	corr_filters = make_corr_filters(mod_len, env_fs, intervals)
+
+	# make C2 filters
+	print 'computing C1 and C2 filters'
+	c2_low = g_low_c2_limit
+	c2_hi = 1. * env_fs / 2
+	c2_cutoffs = c2_hi / (2**np.arange(0,21))
+	c2_cutoffs = np.flipud( c2_cutoffs[ np.where(c2_cutoffs > c2_low) ] )
+	c2_filters, c2_fc = make_octave_corr_filters(mod_len, env_fs, c2_cutoffs)
+
+	# make C1 filters
+	c1_filters = c2_filters[:,1:]
+	c1_fc = c2_fc[1:]
 
 	# make window
 	num_windows = np.round(1. * N / fs) + 2
@@ -221,14 +258,16 @@ def compute_statistics(soundfile, fs, N):
 
 	## DEBUG
 	print 'plotting...'
+
 	fig = plt.figure()
-	fig.add_subplot(4,1,1)
-	plt.plot(w)
-	plt.ylabel('window')
+	# fig.add_subplot(4,1,1)
+	# plt.plot(w)
+	# plt.ylabel('window')
 	ax = fig.add_subplot(4,1,2)
 	for i in range(0,num_audio_channels + 2):
 		plt.plot(filters[:,i])
 	plt.ylabel('filtered bands')
+	ax.set_xscale('log')
 	ax = fig.add_subplot(4,1,3)
 	for i in range(0, num_audio_channels + 2):
 		plt.plot(subbands[:,i])
@@ -247,10 +286,14 @@ def compute_statistics(soundfile, fs, N):
 	for i in range(0, len(intervals)):
 		plt.plot(corr_filters[:,i])
 	plt.ylabel('corr filters')
-
+	fig.add_subplot(4,1,3)
+	for i in range(0, np.shape(c2_filters)[1]):
+		plt.plot(c2_filters[:,i])
+	plt.ylabel('c2 filters')
 	plt.show()
 	##
 
+	stats = []
 	return stats
 
 # Run ----------------------------------------------------------------------------------
