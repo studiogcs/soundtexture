@@ -8,16 +8,21 @@
 import sys, struct, wave
 import numpy as np
 from scipy.io.wavfile import read
-from scipy.signal import hilbert
+from scipy.signal import hilbert, resample
 
 # DEBUG
 from matplotlib import pyplot as plt
 
 # Globals --------------------------------------------------------------------------
-g_rms = 0.01 # desired root mean square
-g_low_freq_limit = 20
-g_num_audio_channels = 30
-g_env_fs = 400
+g_rms = 0.01					# desired root mean square
+g_low_freq_limit = 20 		# Hz low end
+g_num_audio_channels = 30 	# number of bands
+g_env_fs = 400 		# sample rate of band envelope, for resampling
+g_comp_exp = 0.3	# compression exponent
+g_num_mod_channels = 20
+g_low_mod_limit = 0.5
+g_Q = 2
+g_corr_env_intervals = np.array([1, 2, 3, 4, 5, 6, 7, 9, 11, 14, 18, 22, 28, 36, 45, 57, 73, 92, 116, 148, 187, 237, 301])
 # Locals ----------------------------------------------------------------------------
 
 # Loads a wav file from the complete path
@@ -63,8 +68,8 @@ def freq2erb(f):
 def erb2freq(erb):
 	return 24.7 * 9.265  * (np.exp(erb/9.265) - 1)
 
-# Erb cosine filters
-def make_erb_cos_filters(N, fs, num_audio_channels):
+# cosine filters based on ERB frequency band limits
+def make_erb_cos_filters(N, fs, num_bands, cutoffs):
 
 	if N % 2 == 0:
 		N_f = N / 2
@@ -73,14 +78,9 @@ def make_erb_cos_filters(N, fs, num_audio_channels):
 		N_f = (N  - 1) / 2
 		nyquist = 1. * fs/2 * (1-1/N)	
 	f = np.arange(0,N_f) * nyquist / N_f 
-	filters = np.zeros( (N_f + 1, num_audio_channels + 2) )
+	filters = np.zeros( (N_f + 1, num_bands + 2) )
 
-	# freq limits (Hz -> erb)
-	low = g_low_freq_limit
-	high = nyquist
-	cutoffs = erb2freq( np.arange(freq2erb(low), freq2erb(high), (freq2erb(high) - freq2erb(low)) / (num_audio_channels+1)) )
-
-	for i in range(0,num_audio_channels-1):
+	for i in range(0,num_bands-1):
 		l = cutoffs[ i ]
 		h = cutoffs[ i + 2 ]
 		l_ind = np.min(np.where(f > l))
@@ -89,12 +89,12 @@ def make_erb_cos_filters(N, fs, num_audio_channels):
 		filters[l_ind:h_ind, i + 1] = np.cos( ( freq2erb( f[ l_ind:h_ind ] ) - avg ) / ( freq2erb(l) - freq2erb(h)) * np.pi )
 
 	# add HPF as first low end and LPF for high end of the bandwidth
-	l_ind = np.min(np.where(f > cutoffs[num_audio_channels-1]))
+	l_ind = np.min(np.where(f > cutoffs[num_bands-1]))
 	h_ind = np.max(np.where(f < cutoffs[1]))
 	filters[0:h_ind,0] = np.sqrt( 1 - filters[0:h_ind,1] ** 2 )
-	filters[l_ind:, num_audio_channels+1] = np.sqrt( 1 - filters[l_ind:,num_audio_channels-1] ** 2 )
+	filters[l_ind:, num_bands+1] = np.sqrt( 1 - filters[l_ind:,num_bands-1] ** 2 )
 	
-	return filters, cutoffs
+	return filters
 
 def make_subbands(x, filters):
 	N = np.shape(x)[0]
@@ -108,60 +108,144 @@ def make_subbands(x, filters):
 
 	fft_subbands = fft_filters * X
 
-	## DEBUG
-	# print x[0:4]
-	# print X[0:4,0]
-	# print fft_filters[0:4,0]
-	# print fft_subbands[0:4,0]
-	# fig = plt.figure()
-	# plt.plot(fft_filters[:,20]) # filter
-	# plt.plot(np.abs(X)) # FFT
-	# plt.plot(np.abs(fft_subbands[:,20]))
-	# plt.show()
-	##
-
 	return np.real(np.fft.ifft(fft_subbands.T).T)
+
+# constant Q logarithmically spaced cosine filters
+def make_log2_cos_filters(N, fs, num_bands, cutoffs):
+
+	if N % 2 == 0:
+		N_f = N / 2
+		nyquist = 1. * fs / 2
+	else:
+		N_f = (N  - 1) / 2
+		nyquist = 1. * fs/2 * (1-1/N)	
+	f = np.arange(0,N_f) * nyquist  / N_f 
+	filters = np.zeros( (N_f + 1, num_bands) )
+
+	Q = g_Q
+	for i in range(0, num_bands-1):
+		bw = cutoffs[ i ] * 1. / Q
+		l = cutoffs[ i ] - bw
+		h = cutoffs[ i ] + bw
+		l_ind = np.where(f > l)[0][0]
+		h_ind = np.where(f < h)[0][-1]
+		avg = cutoffs[ i ]
+		filters[l_ind:h_ind, i] = np.cos( ( f[ l_ind:h_ind ] - avg ) / (h - l) * np.pi )
+
+	s =  np.sum(filters ** 2,1)
+	filters = filters / np.sqrt( np.mean( s[ (f >= cutoffs[3]) & (f <= cutoffs[-4])  ] ) )
+
+	return filters
+
+def make_corr_filters(N, fs, intervals):
+
+	if N % 2 == 0:
+		N_f = N / 2
+		nyquist = 1. * fs / 2
+	else:
+		N_f = (N  - 1) / 2
+		nyquist = 1. * fs/2 * (1-1/N)	
+	f = np.arange(0,N_f) * nyquist  / N_f 
+
+	num_bands = len(intervals)
+	filters = np.zeros( (N_f + 1, num_bands) )
+
+	for i in range(0,num_bands-1):
+		if i == 0:
+			h = 1./ (4.*intervals[i] / 1000)
+			l = .5 / (4.*intervals[i]/1000)
+		else:
+			h = 1. / (4.*(intervals[i] - intervals[i-1]) / 1000)
+			l = .5 / (4.*(intervals[i] - intervals[i-1]) / 1000)
+
+		if h > nyquist:
+			filters[:,i] = np.ones(N_f + 1)
+		else:
+			l_ind = np.min(np.where(f > l))
+			h_ind = np.max(np.where(f < h))
+			if l_ind < h_ind:
+				filters[0:l_ind-1, i] = np.ones(l_ind-1)
+				filters[l_ind:h_ind, i] = np.cos( ( f[ l_ind:h_ind ] - f[ l_ind ] ) / ( f[l_ind] - f[ h_ind ] ) * np.pi/2 )
+			else:
+				filters[0:l_ind-1,i] = np.ones(l_ind-1)
+
+	return filters
 
 def compute_statistics(soundfile, fs, N):
 	stats = []
 	N = len(soundfile)
 	num_audio_channels = g_num_audio_channels
 
-	# 1 second window
 	env_fs = g_env_fs
-	total_len = 1. * N / fs * env_fs
-	num_windows = np.round(1. * N / fs) + 2
-	onset_len = np.round(total_len/ (num_windows-1))
-	w = make_cos_window(onset_len, total_len)
+	dsamp_len = 1. * N / fs * env_fs 	# downsample length
 
-	# generate erb cosine filters
+	# make subbands using freq limit units: Hz -> erb
 	print 'generating band filters...'
-	filters, cutoffs = make_erb_cos_filters(N, fs, num_audio_channels)
+	low = g_low_freq_limit
+	high = 1. * fs / 2
+	cutoffs = erb2freq( np.arange(freq2erb(low), freq2erb(high), (freq2erb(high) - freq2erb(low)) / (num_audio_channels+1)) )
+	filters = make_erb_cos_filters(N, fs, num_audio_channels, cutoffs)
 
-	# make subbands
 	print 'computing subbands...'
 	subbands = make_subbands(soundfile, filters)
-
-	# take envelopes
+	
+	# extract envelopes for each band
 	subband_env = np.abs(hilbert(subbands.T).T)
+
+	# apply compression nonlinearity
+	subband_comp = subband_env**g_comp_exp
+
+	# resample
+	subband_resampled = resample(subband_comp, dsamp_len)
+	subband_resampled[subband_resampled < 0] = 0
+
+	# make modulation filters
+	num_mod_channels = g_num_mod_channels
+	mod_len = dsamp_len
+	mod_low = g_low_mod_limit
+	mod_high = 1. * env_fs / 2
+	ds = (np.log2(mod_high) - np.log2(mod_low)) / (num_mod_channels - 1) 
+	mod_cutoffs = 2**( np.arange( np.log2(mod_low),  np.log2(mod_high) + ds, ds) )
+	mod_filters = make_log2_cos_filters(mod_len, env_fs, num_mod_channels, mod_cutoffs)
+
+	# make autocorrelation filters
+	intervals = g_corr_env_intervals
+	corr_filters = make_corr_filters(mod_len, env_fs, intervals)
+
+	# make window
+	num_windows = np.round(1. * N / fs) + 2
+	onset_len = np.round(dsamp_len/ (num_windows-1))
+	w = make_cos_window(onset_len, dsamp_len)
 
 	## DEBUG
 	print 'plotting...'
 	fig = plt.figure()
-	fig.add_subplot(3,1,1)
+	fig.add_subplot(4,1,1)
 	plt.plot(w)
 	plt.ylabel('window')
-	ax = fig.add_subplot(3,1,2)
+	ax = fig.add_subplot(4,1,2)
 	for i in range(0,num_audio_channels + 2):
 		plt.plot(filters[:,i])
 	plt.ylabel('filtered bands')
-	ax = fig.add_subplot(3,1,3)
-	# for i in range(0,num_audio_channels + 2):
-	# 	plt.plot(subbands[:,i])
-	# plt.ylabel('subbands')
+	ax = fig.add_subplot(4,1,3)
+	for i in range(0, num_audio_channels + 2):
+		plt.plot(subbands[:,i])
+	plt.ylabel('subbands')
+	ax = fig.add_subplot(4,1,4)
 	plt.plot(subband_env[:,2])
-	plt.ylabel('band envelopes')
+	plt.ylabel('ex. envelope')
 	plt.xlabel('samples')
+
+	fig = plt.figure()
+	fig.add_subplot(4,1,1)
+	for i in range(0, num_mod_channels):
+		plt.plot(mod_filters[:,i])
+	plt.ylabel('mod chans')
+	fig.add_subplot(4,1,2)
+	for i in range(0, len(intervals)):
+		plt.plot(corr_filters[:,i])
+	plt.ylabel('corr filters')
+
 	plt.show()
 	##
 
