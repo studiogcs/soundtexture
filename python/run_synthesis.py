@@ -9,6 +9,7 @@ import sys, struct, wave
 import numpy as np
 from scipy.io.wavfile import read
 from scipy.signal import hilbert, resample
+import sklearn.manifold
 
 from matplotlib import pyplot as plt  # for debugging
 
@@ -48,10 +49,10 @@ class Compute(object):
 	mod_c1 = np.array([])
 	mod_c2 = np.array([])
 
-	def __init__(self, soundfile, fs, N, **options):
+	def __init__(self, soundfile, fs, **options):
 		self.soundfile = soundfile
 		self.fs = fs
-		self.N = N
+		self.N = len(soundfile)
 		self.options = options
 		# [setattr(self, key, value) for key,value in options.iteritems()]
 
@@ -72,7 +73,7 @@ class Compute(object):
 			freq2erb(high),
 			(freq2erb(high) - freq2erb(low)) / (self.options['num_audio_channels'] + 1)
 		))
-		self.filters = make_erb_cos_filters(N, fs, self.options['num_audio_channels'], cutoffs)
+		self.filters = make_erb_cos_filters(self.N, self.fs, self.options['num_audio_channels'], cutoffs)
 
 		print 'computing subbands...'
 		self.subbands = apply_filters(self.soundfile, self.filters)
@@ -165,7 +166,19 @@ class Compute(object):
 		print "\nmodulation C1:\n\t", self.mod_c1[start:end]
 		print "\nmodulation C2:\n\t", self.mod_c2[start:end]
 
-	def plots(self):
+	def features(self):
+		return np.concatenate((
+			self.mean,
+			self.var,
+			self.e_mean,
+			self.e_var,
+			self.e_auto_c[0],
+			self.e_auto_c[1],
+
+		))
+
+
+def plots(self):
 		# # DEBUG
 		print 'plotting...'
 
@@ -435,19 +448,52 @@ def modulation_power(x, filters, w):
 
 if __name__ == "__main__":
 
-	if len(sys.argv) > 1:
-		filename = sys.argv[1]
-		soundfile, fs, N = open_wavefile(filename, rms=default_options['rms'])
-	else:
-		print "no user input"
-		sys.exit(1)
+	# if len(sys.argv) > 1:
+	# 	filename = sys.argv[1]
+	# 	soundfile, fs, N = open_wavefile(filename, rms=default_options['rms'])
+	# else:
+	# 	print "no user input"
+	# 	sys.exit(1)
 
-	# extract features
-	stats = Compute(soundfile, fs, N, **default_options)
-	stats.make_stats()
-	stats.display(0, 2)
-	stats.plots()
+	filenames = [
+		'Applause_-_enthusiastic2.wav',
+		'Bubbling_water.wav',
+		'Writing_with_pen_on_paper.wav',
+		'white_noise_5s.wav',
+		# 'chamber-choir-parallel-fifths.wav',
 
+	]
+	labels_set = [l[:4].lower() for l in filenames]
+	wins = []
+	labels = []
+	for filename in filenames:
+		# extract features
+		soundfile, fs, N = open_wavefile('wavefiles/' + filename, rms=default_options['rms'])
+		if len(soundfile.shape) > 1:
+			soundfile = soundfile.mean(1)
+		label = filename[:4].lower()
+		stride = fs // 2
+		win_size = fs
+		n_wins = (N - win_size) // stride
+		for i in xrange(n_wins):
+			stats = Compute(soundfile[i*stride:i*stride+win_size], fs, **default_options)
+			stats.make_stats()
+			wins.append(stats.features())
+			labels.append(label)
+			# stats.display(0, None)
+			# stats.plots()
+
+	wins = np.array(wins)
+	# X = sklearn.manifold.TSNE().fit_transform(wins)
+	V, S, U_t = np.linalg.svd(wins)
+	X = V[:, :2]
+
+	colors = ['r', 'g', 'b', 'y', 'k']
+	plt.figure()
+	plt.scatter(X[:, 0], X[:, 1],
+		c=[colors[labels_set.index(label)] for label in labels])
+	plt.show()
+	print wins
 
 
 
