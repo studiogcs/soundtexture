@@ -13,9 +13,9 @@ import os
 from scipy.io.wavfile import read
 from scipy.signal import hilbert, resample
 import sklearn.manifold
-from wavio import readwav   #  https://github.com/WarrenWeckesser/wavio.git
 
-from matplotlib import pyplot as plt  # for debugging
+from matplotlib import pyplot as plt
+import pdb
 
 # Globals --------------------------------------------------------------------------
 import traceback
@@ -134,6 +134,9 @@ class Compute(object):
 		num_subbands = np.shape(self.subbands)[1]
 		self.mean = np.mean(self.subbands, 0)
 		self.var = np.var(self.subbands, 0)
+
+		pdb.set_trace()
+
 		m0 = self.subbands - self.mean  # zero mean
 		self.skew = np.mean(m0 ** 3, 0) / (np.mean(m0 ** 2, 0)) ** 1.5
 		self.kurtosis = np.mean(m0 ** 4, 0) / (np.mean(m0 ** 2, 0)) ** 2
@@ -157,7 +160,6 @@ class Compute(object):
 	def display(self, start, end):
 		print "\nmean:\n\t", self.mean[start:end]
 		print "\nvar:\n\t", self.var[start:end]
-
 		print "\nskew:\n\t", self.skew[start:end]
 		print "\nkurtosis:\n\t", self.kurtosis[start:end]
 		print "\nsubband autocorrelation: \n\t", self.auto_c[start:end]
@@ -185,7 +187,6 @@ class Compute(object):
 
 
 def plots(self):
-		# # DEBUG
 		print 'plotting...'
 
 		fig = plt.figure()
@@ -224,7 +225,7 @@ def plots(self):
 # Locals ----------------------------------------------------------------------------
 
 # Loads a wav file from the complete path
-def open_wavefile(filename, rms=.01):
+def open_wavefile(filename, target_rms=.01):
 	print "READING: " + filename
 	try:
 		[fs, wavefile] = read(filename)
@@ -243,10 +244,10 @@ def open_wavefile(filename, rms=.01):
 		num_chan = dim[1]
 		for c in range(1, num_chan):
 			rms = np.sqrt(np.mean(np.square(x[:, c])))
-			x[:, c] = 1. * x[:, c] / rms * rms
+			x[:, c] = 1. * x[:, c] / rms * target_rms
 	else:
-		rms = rms = np.sqrt(np.mean(np.square(x)))
-		x = 1. * x / rms * rms
+		rms = np.sqrt(np.mean(np.square(x)))
+		x = 1. * x / rms * target_rms
 	num_frames = dim[0]
 
 	print "\tsample rate: ", fs, "\n\t# samples: ", num_frames, "\n\t# channels: ", num_chan
@@ -301,6 +302,7 @@ def make_erb_cos_filters(N, fs, num_bands, cutoffs):
 
 # Apply multiple fft filtering to input vector x
 def apply_filters(x, filters):
+
 	N = np.shape(x)[0]
 	filt_len, num_filters = np.shape(filters)
 	X = np.fft.fft(x).repeat(num_filters).reshape(N, num_filters)
@@ -475,9 +477,10 @@ def cache_to_disk(f):
 def get_features(filenames, limit):
 	wins = []
 	labels = []
+
 	for filename in filenames:
 		# extract features
-		soundfile, fs, N = open_wavefile('wavefiles/' + filename, rms=default_options['rms'])
+		soundfile, fs, N = open_wavefile('wavefiles/' + filename, target_rms=default_options['rms'])
 		if len(soundfile.shape) > 1:
 			soundfile = soundfile.mean(1)
 		soundfile = soundfile[::3]
@@ -486,6 +489,8 @@ def get_features(filenames, limit):
 		stride = fs // 2
 		win_size = fs
 		n_wins = (N - win_size) // stride
+
+
 		for i in xrange(min(limit, n_wins)):
 			stats = Compute(soundfile[i * stride:i * stride + win_size], fs, **default_options)
 			stats.make_stats()
@@ -534,6 +539,7 @@ if __name__ == "__main__":
 	print sklearn.metrics.classification_report(labels[train], mod.predict(wins[train]))
 	print sklearn.metrics.confusion_matrix(labels[~train], mod.predict(wins[~train]))
 	print sklearn.metrics.classification_report(labels[~train], mod.predict(wins[~train]))
+
 
 	X = sklearn.manifold.TSNE().fit_transform(wins)
 	# V, S, U_t = np.linalg.svd(wins)
