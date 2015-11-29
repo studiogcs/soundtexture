@@ -4,16 +4,22 @@
 #
 # $ python run_synthesis.py <path to wave file>
 #
+import pickle
 
 import sys, struct, wave
+import collections
 import numpy as np
+import os
 from scipy.io.wavfile import read
 from scipy.signal import hilbert, resample
 import sklearn.manifold
+from wavio import readwav   #  https://github.com/WarrenWeckesser/wavio.git
 
 from matplotlib import pyplot as plt  # for debugging
 
 # Globals --------------------------------------------------------------------------
+import traceback
+
 default_options = {
 	'rms': 0.01,  # desired root mean square
 	'low_freq_limit': 20,  # Hz low end
@@ -59,7 +65,7 @@ class Compute(object):
 		self.w_len = 1. * self.N / self.fs * self.options['env_fs']  # downsample length
 
 		# make window
-		num_windows = np.round(1. * N / fs) + 2
+		num_windows = np.round(1. * self.N / fs) + 2
 		onset_len = np.round(self.w_len / (num_windows - 1))
 		w = make_cos_window(onset_len, self.w_len)
 		self.w = w.reshape(self.w_len, 1)
@@ -221,8 +227,10 @@ def plots(self):
 def open_wavefile(filename, rms=.01):
 	print "READING: " + filename
 	try:
-		[fs, wavefile] = read(filename, 'r')
+		[fs, wavefile] = read(filename)
+		# [fs, width, wavefile] = readwav(filename)
 	except:
+		print traceback.format_exc()
 		print "ERROR: could not read file"
 		sys.exit(1)
 
@@ -443,6 +451,50 @@ def modulation_power(x, filters, w):
 	return np.sum(w_matrix * mod_x ** 2, 0) / v
 
 
+def cache_to_disk(f):
+	def wrapped(*args, **kwargs):
+		redo = kwargs.pop('redo', False)
+		key_args = [str(arg) for arg in args if isinstance(arg, collections.Hashable)]
+		key = hash(f.func_name + '_' + '_'.join(key_args))
+		if not os.path.exists('caches'):
+			os.makedirs('caches')
+		full_path = 'caches/%s.pkl' % key
+		if redo:
+			result = f(*args, **kwargs)
+			pickle.dump(result, open(full_path, 'w+'))
+		elif os.path.exists(full_path):
+			result = pickle.load(open(full_path))
+		else:
+			result = f(*args, **kwargs)
+			pickle.dump(result, open(full_path, 'w+'))
+		return result
+	return wrapped
+
+
+@cache_to_disk
+def get_features(filenames, limit):
+	wins = []
+	labels = []
+	for filename in filenames:
+		# extract features
+		soundfile, fs, N = open_wavefile('wavefiles/' + filename, rms=default_options['rms'])
+		if len(soundfile.shape) > 1:
+			soundfile = soundfile.mean(1)
+		soundfile = soundfile[::3]
+		fs = fs // 3
+		label = filename[:4].lower()
+		stride = fs // 2
+		win_size = fs
+		n_wins = (N - win_size) // stride
+		for i in xrange(min(limit, n_wins)):
+			stats = Compute(soundfile[i * stride:i * stride + win_size], fs, **default_options)
+			stats.make_stats()
+			wins.append(stats.features())
+			labels.append(label)
+		# stats.display(0, None)
+		# stats.plots()
+
+	return np.array(wins), np.array(labels)
 
 # Run ----------------------------------------------------------------------------------
 
@@ -455,44 +507,43 @@ if __name__ == "__main__":
 	# 	print "no user input"
 	# 	sys.exit(1)
 
-	filenames = [
-		'Applause_-_enthusiastic2.wav',
-		'Bubbling_water.wav',
-		'Writing_with_pen_on_paper.wav',
-		'white_noise_5s.wav',
+	filenames = (
+		'Lecture Hall Chatter.wav',
+		'Sunnyvale Station.wav',
+		# 'Applause_-_enthusiastic2.wav',
+		# 'Bubbling_water.wav',
+		# 'Writing_with_pen_on_paper.wav',
+		# 'white_noise_5s.wav',
 		# 'chamber-choir-parallel-fifths.wav',
 
-	]
-	labels_set = [l[:4].lower() for l in filenames]
-	wins = []
-	labels = []
-	for filename in filenames:
-		# extract features
-		soundfile, fs, N = open_wavefile('wavefiles/' + filename, rms=default_options['rms'])
-		if len(soundfile.shape) > 1:
-			soundfile = soundfile.mean(1)
-		label = filename[:4].lower()
-		stride = fs // 2
-		win_size = fs
-		n_wins = (N - win_size) // stride
-		for i in xrange(n_wins):
-			stats = Compute(soundfile[i*stride:i*stride+win_size], fs, **default_options)
-			stats.make_stats()
-			wins.append(stats.features())
-			labels.append(label)
-			# stats.display(0, None)
-			# stats.plots()
+	)
 
-	wins = np.array(wins)
-	# X = sklearn.manifold.TSNE().fit_transform(wins)
-	V, S, U_t = np.linalg.svd(wins)
-	X = V[:, :2]
+	wins, labels = get_features(filenames, 150)
+	print wins.shape
+	m, s = np.mean(wins, 0), np.std(wins, 0)
+	labels = np.array(labels)
+	labels_set = [l[:4].lower() for l in filenames]
+
+	train = np.random.rand(len(wins)) < .8
+
+	m, v = np.mean(wins[train], 0), np.var(wins[train], 0)
+	# scale = lambda X: (X - m) / s
+	mod = sklearn.linear_model.LogisticRegression(C=.7).fit(wins[train], labels[train])
+	# mod = sklearn.svm.SVC(kernel='rbf', C=.56).fit(wins[train], labels[train])
+	print sklearn.metrics.confusion_matrix(labels[train], mod.predict(wins[train]))
+	print sklearn.metrics.classification_report(labels[train], mod.predict(wins[train]))
+	print sklearn.metrics.confusion_matrix(labels[~train], mod.predict(wins[~train]))
+	print sklearn.metrics.classification_report(labels[~train], mod.predict(wins[~train]))
+
+	X = sklearn.manifold.TSNE().fit_transform(wins)
+	# V, S, U_t = np.linalg.svd(wins)
+	# X = V[:, :2]
 
 	colors = ['r', 'g', 'b', 'y', 'k']
 	plt.figure()
 	plt.scatter(X[:, 0], X[:, 1],
 		c=[colors[labels_set.index(label)] for label in labels])
-	plt.show()
+	# plt.show()
 	print wins
 
 
