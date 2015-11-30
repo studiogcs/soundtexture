@@ -13,6 +13,10 @@ import os
 from scipy.io.wavfile import read
 from scipy.signal import hilbert, resample
 import sklearn.manifold
+import sklearn.ensemble
+import sklearn.tree
+import sklearn.linear_model
+import sklearn.svm
 
 from matplotlib import pyplot as plt
 import pdb
@@ -129,18 +133,26 @@ class Compute(object):
 		self.acf_filters()
 		self.c_filters()
 
+		cov_neighbors = [1, 2, 3, 5, 8, 11, 16, 21]
+
 		# compute statistics:
 		print "Computing statistics"
+		###   subband stats
 		num_subbands = np.shape(self.subbands)[1]
 		self.mean = np.mean(self.subbands, 0)
 		self.var = np.var(self.subbands, 0)
-
-		pdb.set_trace()
 
 		m0 = self.subbands - self.mean  # zero mean
 		self.skew = np.mean(m0 ** 3, 0) / (np.mean(m0 ** 2, 0)) ** 1.5
 		self.kurtosis = np.mean(m0 ** 4, 0) / (np.mean(m0 ** 2, 0)) ** 2
 
+		self.subband_cov_raw = np.corrcoef(self.subbands.T)
+		self.subband_cov = np.concatenate(
+			[np.diag(self.subband_cov_raw, k) for k in cov_neighbors]
+		)
+
+
+		###  envelop -> comp -> resamp subands
 		self.e_mean = np.mean(self.subband_resampled * self.w, 0)
 		env_m0 = self.subband_resampled - self.e_mean
 		v2 = np.mean((env_m0 ** 2) * self.w, 0)
@@ -175,15 +187,47 @@ class Compute(object):
 		print "\nmodulation C2:\n\t", self.mod_c2[start:end]
 
 	def features(self):
-		return np.concatenate((
+		return np.concatenate(map(lambda x: x.flatten(), (
 			self.mean,
 			self.var,
+			self.skew,
+			self.kurtosis,
+
+			self.subband_cov,
+
 			self.e_mean,
 			self.e_var,
-			self.e_auto_c[0],
-			self.e_auto_c[1],
+			self.e_skew,
+			self.e_kurtosis,
 
-		))
+			self.e_auto_c,
+			self.mod_power,
+
+
+
+		)))
+
+	def feat_header(self):
+		head = sum([
+		['a_mean_%s'%i for i in xrange(len(self.mean.flatten()))],
+		['a_var_%s'%i for i in xrange(len(self.var.flatten()))],
+		['a_skew_%s'%i for i in xrange(len(self.skew.flatten()))],
+		['a_kurtosis_%s'%i for i in xrange(len(self.kurtosis.flatten()))],
+
+		['subband_cov_%s'%i for i in xrange(len(self.subband_cov.flatten()))],
+
+		['e_mean_%s'%i for i in xrange(len(self.e_mean.flatten()))],
+		['e_var_%s'%i for i in xrange(len(self.e_var.flatten()))],
+		['e_skew_%s'%i for i in xrange(len(self.e_skew.flatten()))],
+		['e_kurtosis_%s'%i for i in xrange(len(self.e_kurtosis.flatten()))],
+
+		['e_auto_c_%s'%i for i in xrange(len(self.e_auto_c.flatten()))],
+		['mod_power_%s'%i for i in xrange(len(self.mod_power.flatten()))],
+
+
+
+		], [])
+		return head
 
 
 def plots(self):
@@ -306,11 +350,7 @@ def apply_filters(x, filters):
 	N = np.shape(x)[0]
 	filt_len, num_filters = np.shape(filters)
 	X = np.fft.fft(x).repeat(num_filters).reshape(N, num_filters)
-
-	if N % 2 == 0:
-		fft_filters = np.concatenate((filters, np.flipud(filters[0:filt_len - 2, :])), axis=0)
-	else:
-		fft_filters = np.concatenate((filters, np.flipud(filters[0:filt_len - 1, :])), axis=0)
+	fft_filters = np.vstack((filters, np.flipud(filters)))[:X.shape[0]]    # todo: hack??
 
 	fft_subbands = fft_filters * X
 
@@ -323,10 +363,7 @@ def apply_filter(x, filter):
 	filt_len = len(filter)
 	X = np.fft.fft(x)
 
-	if N % 2 == 0:
-		fft_filter = np.concatenate((filter, np.flipud(filter[0:filt_len - 2])), axis=0)
-	else:
-		fft_filter = np.concatenate((filter, np.flipud(filter[0:filt_len - 1])), axis=0)
+	fft_filter = np.concatenate((filter, np.flipud(filter)))[:X.shape[0]]    # todo: hack??
 
 	return np.real(np.fft.ifft(fft_filter * X))
 
@@ -452,12 +489,20 @@ def modulation_power(x, filters, w):
 
 	return np.sum(w_matrix * mod_x ** 2, 0) / v
 
+def spect(data, winsize=2048):
+	wins = [np.hanning(winsize) * data[i*winsize/2:(i+2)*winsize/2] for i in xrange(0, len(data)//(winsize/2) - 1)]
+	ffts = map(np.fft.fft, wins)
+	freqs = np.fft.fftfreq(winsize)
+	return np.abs(np.vstack(ffts).T[freqs > 0][::-1])
 
 def cache_to_disk(f):
 	def wrapped(*args, **kwargs):
 		redo = kwargs.pop('redo', False)
 		key_args = [str(arg) for arg in args if isinstance(arg, collections.Hashable)]
-		key = hash(f.func_name + '_' + '_'.join(key_args))
+		key_args += [str(tuple(arg)) for arg in args if isinstance(arg, list)]
+		key = f.func_name + '_' + '_'.join(key_args)
+		print key
+		key = hash(key)
 		if not os.path.exists('caches'):
 			os.makedirs('caches')
 		full_path = 'caches/%s.pkl' % key
@@ -474,32 +519,61 @@ def cache_to_disk(f):
 
 
 @cache_to_disk
-def get_features(filenames, limit):
+def featurize_file(downsample, filename, limit, winlen):
+	wins = []
+	labels = []
+
+	soundfile, fs, N = open_wavefile('wavefiles/' + filename, target_rms=default_options['rms'])
+	if len(soundfile.shape) > 1:
+		soundfile = soundfile.mean(1)
+	soundfile = soundfile[::downsample]
+	fs = fs // downsample
+	N = N // downsample
+	label = filename[:4].lower()
+	win_size = winlen * fs
+	stride = win_size // 2
+	n_wins = (N - win_size) // stride
+	for i in xrange(min(limit, n_wins)):
+		stats = Compute(soundfile[i * stride:i * stride + win_size], fs, **default_options)
+		stats.make_stats()
+
+		header = stats.feat_header()
+		wins.append(stats.features())
+		labels.append(label)
+	# stats.display(0, None)
+	# stats.plots()
+	return header, wins, labels
+
+
+# @cache_to_disk
+def get_features(filenames, limit, winlen, downsample=1):
 	wins = []
 	labels = []
 
 	for filename in filenames:
 		# extract features
-		soundfile, fs, N = open_wavefile('wavefiles/' + filename, target_rms=default_options['rms'])
-		if len(soundfile.shape) > 1:
-			soundfile = soundfile.mean(1)
-		soundfile = soundfile[::3]
-		fs = fs // 3
-		label = filename[:4].lower()
-		stride = fs // 2
-		win_size = fs
-		n_wins = (N - win_size) // stride
+		header, wins_, labels_ = featurize_file(downsample, filename, limit, winlen,
+			# redo=True
+		)
+		wins.extend(wins_)
+		labels.extend(labels_)
+
+	return header, np.array(wins), np.array(labels)
 
 
-		for i in xrange(min(limit, n_wins)):
-			stats = Compute(soundfile[i * stride:i * stride + win_size], fs, **default_options)
-			stats.make_stats()
-			wins.append(stats.features())
-			labels.append(label)
-		# stats.display(0, None)
-		# stats.plots()
+def train_test(mod, X, y):
+	train = np.random.rand(X.shape[0]) < .8
+	test = ~train
 
-	return np.array(wins), np.array(labels)
+	mod.fit(X[train], y[train])
+	print 'TRAIN:'
+	print sklearn.metrics.confusion_matrix(y[train], mod.predict(X[train]))
+	print sklearn.metrics.classification_report(y[train], mod.predict(X[train]))
+	print 'TEST:'
+	print sklearn.metrics.confusion_matrix(y[test], mod.predict(X[test]))
+	print sklearn.metrics.classification_report(y[test], mod.predict(X[test]))
+	return mod
+
 
 # Run ----------------------------------------------------------------------------------
 
@@ -513,8 +587,10 @@ if __name__ == "__main__":
 	# 	sys.exit(1)
 
 	filenames = (
-		'Lecture Hall Chatter.wav',
-		'Sunnyvale Station.wav',
+		'Lathrop Noisy.wav',
+		'Caltrain 2.wav',
+		# 'Lecture Hall Chatter.wav',
+		# 'Sunnyvale Station.wav',
 		# 'Applause_-_enthusiastic2.wav',
 		# 'Bubbling_water.wav',
 		# 'Writing_with_pen_on_paper.wav',
@@ -523,39 +599,82 @@ if __name__ == "__main__":
 
 	)
 
-	wins, labels = get_features(filenames, 150)
+	header, wins, labels = get_features(filenames, 1000, 10, downsample=8)
+
 	print wins.shape
 	m, s = np.mean(wins, 0), np.std(wins, 0)
-	labels = np.array(labels)
-	labels_set = [l[:4].lower() for l in filenames]
-
-	train = np.random.rand(len(wins)) < .8
-
-	m, v = np.mean(wins[train], 0), np.var(wins[train], 0)
-	# scale = lambda X: (X - m) / s
-	mod = sklearn.linear_model.LogisticRegression(C=.7).fit(wins[train], labels[train])
-	# mod = sklearn.svm.SVC(kernel='rbf', C=.56).fit(wins[train], labels[train])
-	print sklearn.metrics.confusion_matrix(labels[train], mod.predict(wins[train]))
-	print sklearn.metrics.classification_report(labels[train], mod.predict(wins[train]))
-	print sklearn.metrics.confusion_matrix(labels[~train], mod.predict(wins[~train]))
-	print sklearn.metrics.classification_report(labels[~train], mod.predict(wins[~train]))
-
-
-	X = sklearn.manifold.TSNE().fit_transform(wins)
-	# V, S, U_t = np.linalg.svd(wins)
-	# X = V[:, :2]
-
-	colors = ['r', 'g', 'b', 'y', 'k']
-	plt.figure()
-	plt.scatter(X[:, 0], X[:, 1],
-		c=[colors[labels_set.index(label)] for label in labels])
-	# plt.show()
-	print wins
+	wins = (wins - m) / s
 
 
 
+	mods = [
+		sklearn.ensemble.RandomForestClassifier(n_estimators=4, n_jobs=7),
+		sklearn.ensemble.RandomForestClassifier(n_estimators=20, n_jobs=7),
+		sklearn.ensemble.RandomForestClassifier(n_estimators=50, n_jobs=7),
+		sklearn.tree.DecisionTreeClassifier(max_depth=3),
+		sklearn.tree.DecisionTreeClassifier(max_depth=2),
+		sklearn.tree.DecisionTreeClassifier(),
+		sklearn.linear_model.LogisticRegression(C=.7),
+		sklearn.linear_model.LogisticRegression(),
+		sklearn.svm.SVC(kernel='rbf', C=.5),
+		sklearn.svm.SVC(kernel='rbf'),
+
+	]
+	print header
+	for feat in [
+		'subband',
+		'a_',
+		'e_',
+		'',
+		]:
+		wins_ = wins[:, [i for i in xrange(wins.shape[1]) if header[i].startswith(feat)]]
+		print '\n\n\n********************              %s               ***********************' %feat
+		print wins_.shape
+
+		for mod in mods:
+
+			print mod
+
+			train_test(mod, wins_, labels)
+			print '\n\n'
 
 
 
-
-
+	#
+	#
+	# labels = np.array(labels)
+	# labels_set = [l[:4].lower() for l in filenames]
+	#
+	# train = np.random.rand(len(wins)) < .8
+	#
+	# m, v = np.mean(wins[train], 0), np.var(wins[train], 0)
+	# # scale = lambda X: (X - m) / s
+	# mod = sklearn.linear_model.LogisticRegression(C=.7).fit(wins[train], labels[train])
+	# # mod = sklearn.svm.SVC(kernel='rbf', C=.56).fit(wins[train], labels[train])
+	# print sklearn.metrics.confusion_matrix(labels[train], mod.predict(wins[train]))
+	# print sklearn.metrics.classification_report(labels[train], mod.predict(wins[train]))
+	# print sklearn.metrics.confusion_matrix(labels[~train], mod.predict(wins[~train]))
+	# print sklearn.metrics.classification_report(labels[~train], mod.predict(wins[~train]))
+	#
+	# u, s, v = np.linalg.svd(wins)
+	# X = sklearn.manifold.TSNE().fit_transform(u[:, :33])
+	# # V, S, U_t = np.linalg.svd(wins)
+	# # X = V[:, :2]
+	#
+	# colors = ['r', 'g', 'b', 'y', 'k']
+	# plt.figure()
+	# plt.scatter(X[:, 0], X[:, 1],
+	# 	c=[colors[labels_set.index(label)] for label in labels])
+	# plt.figure()
+	# plt.scatter(u[:, 0], u[:, 1],
+	# 	c=[colors[labels_set.index(label)] for label in labels])
+	# # plt.show()
+	# print wins
+	#
+	#
+	#
+	#
+	#
+	#
+	#
+	#
