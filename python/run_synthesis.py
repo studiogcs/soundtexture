@@ -78,10 +78,11 @@ class Compute(object):
 		print 'generating band filters...'
 		low = self.options['low_freq_limit']
 		high = 1. * self.fs / 2
+		# import ipdb; ipdb.set_trace()
 		cutoffs = erb2freq(np.arange(
 			freq2erb(low),
 			freq2erb(high),
-			(freq2erb(high) - freq2erb(low)) / (self.options['num_audio_channels'] + 1)
+			(freq2erb(high) - freq2erb(low)) / (self.options['num_audio_channels'] + 2)
 		))
 		self.filters = make_erb_cos_filters(self.N, self.fs, self.options['num_audio_channels'], cutoffs)
 
@@ -137,6 +138,7 @@ class Compute(object):
 
 		# compute statistics:
 		print "Computing statistics"
+		# import ipdb; ipdb.set_trace()
 		###   subband stats
 		num_subbands = np.shape(self.subbands)[1]
 		self.mean = np.mean(self.subbands, 0)
@@ -280,19 +282,22 @@ def open_wavefile(filename, target_rms=.01):
 		sys.exit(1)
 
 	x = np.array(wavefile, dtype=float)
+	x = x*(2**-15) # normalizing to match MATLAB double representation
+	# print "\nfirst few samples of x:\n", x[0:5,:]
 	dim = x.shape
 	num_chan = 1
-
+	# import ipdb; ipdb.set_trace()
 	# normalize
 	if len(dim) > 1:
 		num_chan = dim[1]
-		for c in range(1, num_chan):
+		for c in range(0, num_chan):
 			rms = np.sqrt(np.mean(np.square(x[:, c])))
 			x[:, c] = 1. * x[:, c] / rms * target_rms
 	else:
+		# x = x[0:140000] # debug: comment out
 		rms = np.sqrt(np.mean(np.square(x)))
 		x = 1. * x / rms * target_rms
-	num_frames = dim[0]
+	num_frames = x.shape[0]
 
 	print "\tsample rate: ", fs, "\n\t# samples: ", num_frames, "\n\t# channels: ", num_chan
 
@@ -326,7 +331,7 @@ def make_erb_cos_filters(N, fs, num_bands, cutoffs):
 		nyquist = 1. * fs / 2 * (1 - 1 / N)
 	f = np.arange(0, N_f) * nyquist / N_f
 	filters = np.zeros((N_f + 1, num_bands + 2))
-
+	# import ipdb; ipdb.set_trace()
 	for i in range(0, num_bands):
 		l = cutoffs[i]
 		h = cutoffs[i + 2]
@@ -525,14 +530,18 @@ def featurize_file(downsample, filename, limit, winlen):
 
 	soundfile, fs, N = open_wavefile('wavefiles/' + filename, target_rms=default_options['rms'])
 	if len(soundfile.shape) > 1:
+		print "\nfirst few samples:\n", soundfile[0:5,:]
 		soundfile = soundfile.mean(1)
+	print "\nfirst few samples:\n", soundfile[0:5]
 	soundfile = soundfile[::downsample]
 	fs = fs // downsample
 	N = N // downsample
 	label = filename[:4].lower()
 	win_size = winlen * fs
 	stride = win_size // 2
-	n_wins = (N - win_size) // stride
+	# n_wins = (N - win_size) // stride
+	n_wins = (N - win_size) // stride + 1
+	# import ipdb; ipdb.set_trace()
 	for i in xrange(min(limit, n_wins)):
 		stats = Compute(soundfile[i * stride:i * stride + win_size], fs, **default_options)
 		stats.make_stats()
@@ -545,11 +554,11 @@ def featurize_file(downsample, filename, limit, winlen):
 	return header, wins, labels
 
 
-# @cache_to_disk
+@cache_to_disk
 def get_features(filenames, limit, winlen, downsample=1):
 	wins = []
 	labels = []
-
+	# import ipdb; ipdb.set_trace()
 	for filename in filenames:
 		# extract features
 		header, wins_, labels_ = featurize_file(downsample, filename, limit, winlen,
@@ -566,13 +575,20 @@ def train_test(mod, X, y):
 	test = ~train
 
 	mod.fit(X[train], y[train])
-	print 'TRAIN:'
+	
+	# import ipdb; ipdb.set_trace()
+	
+	print 'TRAINING:'
 	print sklearn.metrics.confusion_matrix(y[train], mod.predict(X[train]))
+	e_train = sklearn.metrics.accuracy_score(y[train], mod.predict(X[train]))
+	print e_train
 	print sklearn.metrics.classification_report(y[train], mod.predict(X[train]))
-	print 'TEST:'
+	print 'TESTING:'
 	print sklearn.metrics.confusion_matrix(y[test], mod.predict(X[test]))
+	e_test = sklearn.metrics.accuracy_score(y[test], mod.predict(X[test]))
+	print e_train
 	print sklearn.metrics.classification_report(y[test], mod.predict(X[test]))
-	return mod
+	return mod, e_train, e_test
 
 
 # Run ----------------------------------------------------------------------------------
@@ -590,6 +606,7 @@ if __name__ == "__main__":
 		'Lathrop Noisy.wav',
 		'Caltrain 2.wav',
 		# 'Lecture Hall Chatter.wav',
+		# 'Homestead Rd.wav',
 		# 'Sunnyvale Station.wav',
 		# 'Applause_-_enthusiastic2.wav',
 		# 'Bubbling_water.wav',
@@ -598,12 +615,15 @@ if __name__ == "__main__":
 		# 'chamber-choir-parallel-fifths.wav',
 
 	)
+	
+	winlen = 7;
 
-	header, wins, labels = get_features(filenames, 1000, 10, downsample=8)
-
+	header, wins, labels = get_features(filenames, 100, winlen, downsample=8)
+	#import ipdb; ipdb.set_trace()
 	print wins.shape
 	m, s = np.mean(wins, 0), np.std(wins, 0)
-	wins = (wins - m) / s
+	if wins.shape[0] > 1:  # for the case when there is a single window (validation purposes)
+		wins = (wins - m) / s
 
 
 
@@ -622,9 +642,9 @@ if __name__ == "__main__":
 	]
 	print header
 	for feat in [
-		'subband',
-		'a_',
-		'e_',
+		#'subband',
+		#'a_',
+		#'e_',
 		'',
 		]:
 		wins_ = wins[:, [i for i in xrange(wins.shape[1]) if header[i].startswith(feat)]]
@@ -632,12 +652,34 @@ if __name__ == "__main__":
 		print wins_.shape
 
 		for mod in mods:
+			
+			i_rand = np.random.permutation(len(labels));
+			n_error = 7;
+			m_error = len(labels)/n_error; # generate n_error points of training error data
+			e_tests = [0]*n_error;
+			e_trains = [0]*n_error;
+			for i in range(n_error):
+				wins_e = wins_[i_rand[0:(i+1)*m_error],:]
+				labels_e = labels[i_rand[0:(i+1)*m_error]]
 
-			print mod
+				print mod
+				
+				# import ipdb; ipdb.set_trace()
 
-			train_test(mod, wins_, labels)
-			print '\n\n'
-
+				mod, e_trains[i], e_tests[i] = train_test(mod, wins_e, labels_e)
+				print '\n\n'
+			
+			# import ipdb; ipdb.set_trace()
+			xnum = (np.array(range(n_error))+1)*m_error
+			fig = plt.figure(figsize=(10, 10))
+			plt.plot(xnum,1-np.array(e_trains),xnum,1-np.array(e_tests))
+			font = {'family' : 'normal',
+				'weight' : 'bold',
+				'size'   : 8}
+			plt.rc('font', **font)
+			plt.title(mod)
+			plt.draw()
+	plt.show()
 
 
 	#
