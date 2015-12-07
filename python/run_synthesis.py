@@ -294,7 +294,7 @@ def open_wavefile(filename, target_rms=.01):
 			rms = np.sqrt(np.mean(np.square(x[:, c])))
 			x[:, c] = 1. * x[:, c] / rms * target_rms
 	else:
-		# x = x[0:140000] # debug: comment out
+		x = x[0:140000] # debug: comment out
 		rms = np.sqrt(np.mean(np.square(x)))
 		x = 1. * x / rms * target_rms
 	num_frames = x.shape[0]
@@ -603,12 +603,12 @@ if __name__ == "__main__":
 	# 	sys.exit(1)
 
 	filenames = (
-		'Lathrop Noisy.wav',
-		'Caltrain 2.wav',
+		# 'Lathrop Noisy.wav',
+		# 'Caltrain 2.wav',
 		# 'Lecture Hall Chatter.wav',
 		# 'Homestead Rd.wav',
 		# 'Sunnyvale Station.wav',
-		# 'Applause_-_enthusiastic2.wav',
+		'Applause_-_enthusiastic2.wav',
 		# 'Bubbling_water.wav',
 		# 'Writing_with_pen_on_paper.wav',
 		# 'white_noise_5s.wav',
@@ -618,7 +618,7 @@ if __name__ == "__main__":
 	
 	winlen = 7;
 
-	header, wins, labels = get_features(filenames, 100, winlen, downsample=8)
+	header, wins, labels = get_features(filenames, 100, winlen, downsample=1)
 	#import ipdb; ipdb.set_trace()
 	print wins.shape
 	m, s = np.mean(wins, 0), np.std(wins, 0)
@@ -654,7 +654,7 @@ if __name__ == "__main__":
 		for mod in mods:
 			
 			i_rand = np.random.permutation(len(labels));
-			n_error = 7;
+			n_error = 1;
 			m_error = len(labels)/n_error; # generate n_error points of training error data
 			e_tests = [0]*n_error;
 			e_trains = [0]*n_error;
