@@ -646,8 +646,10 @@ def plot_confusion_matrix(pred, labels, title='Confusion matrix', cmap=plt.cm.Bl
 	confusion_matrix = sklearn.metrics.confusion_matrix(
 		pred, 
 		labels, 
-		labels=labels_set)
+		labels=labels_set).astype('float') 
+	confusion_matrix /= confusion_matrix.sum(axis=1).reshape(-1, 1)
 	
+	plt.figure()
 	plt.imshow(confusion_matrix, interpolation='nearest', cmap=cmap)
 	plt.title(title)
 	plt.colorbar()
@@ -744,6 +746,12 @@ if __name__ == "__main__":
 			res_train.loc[mod_name, fname] = e_train
 			res_test.loc[mod_name, fname] = e_test
 			print '\n\n'
+
+			title = '%s__%s' % (fname, mod_name)
+			plot_confusion_matrix(
+			mod.predict(wins_[~train_mask]), labels[~train_mask], 
+				title=title)
+			plt.savefig('figures/confusions/' + title + '.png')
 	
 	res_train.loc['avg'] = res_train.mean(0)		
 	# plt.matshow(res, cmap=plt.get_cmap('summer')); plt.colorbar()
@@ -760,12 +768,12 @@ if __name__ == "__main__":
 
 	cm_mod =  'logistic regression, 1.0 regularization'
 	plot_confusion_matrix(
-		mods_trained[cm_mod].predict(wins_[~train_mask]), labels[~train_mask], 
+		mod.predict(wins_[~train_mask]), labels[~train_mask], 
 		title=cm_mod)
 	
 	# print res
-	plt.ion()
-	plt.show()
+	# plt.ion()
+	# plt.show()
 	import ipdb; ipdb.set_trace()
 
 	#
