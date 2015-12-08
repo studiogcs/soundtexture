@@ -19,7 +19,7 @@ import sklearn.linear_model
 import sklearn.svm
 
 from matplotlib import pyplot as plt
-import pdb
+import ipdb
 
 # Globals --------------------------------------------------------------------------
 import traceback
@@ -82,7 +82,7 @@ class Compute(object):
 		cutoffs = erb2freq(np.arange(
 			freq2erb(low),
 			freq2erb(high),
-			(freq2erb(high) - freq2erb(low)) / (self.options['num_audio_channels'] + 2)
+			(freq2erb(high) - freq2erb(low)) / (self.options['num_audio_channels'] + 1)
 		))
 		self.filters = make_erb_cos_filters(self.N, self.fs, self.options['num_audio_channels'], cutoffs)
 
@@ -282,6 +282,7 @@ def open_wavefile(filename, target_rms=.01):
 		sys.exit(1)
 
 	x = np.array(wavefile, dtype=float)
+	# ipdb.set_trace()
 	x = x*(2**-15) # normalizing to match MATLAB double representation
 	# print "\nfirst few samples of x:\n", x[0:5,:]
 	dim = x.shape
@@ -292,11 +293,11 @@ def open_wavefile(filename, target_rms=.01):
 		num_chan = dim[1]
 		for c in range(0, num_chan):
 			rms = np.sqrt(np.mean(np.square(x[:, c])))
-			x[:, c] = 1. * x[:, c] / rms * target_rms
+			x[:, c] = 1. * x[:, c] / rms * target_rms + np.random.rand(x.shape[0])*1e-20 # adding noise for files with fake zero data
 	else:
-		x = x[0:140000] # debug: comment out
+		# x = x[0:140000] # debug: comment out
 		rms = np.sqrt(np.mean(np.square(x)))
-		x = 1. * x / rms * target_rms
+		x = 1. * x / rms * target_rms + np.random.rand(x.shape[0])*1e-20 # adding noise for files with fake zero data
 	num_frames = x.shape[0]
 
 	print "\tsample rate: ", fs, "\n\t# samples: ", num_frames, "\n\t# channels: ", num_chan
@@ -354,8 +355,11 @@ def apply_filters(x, filters):
 
 	N = np.shape(x)[0]
 	filt_len, num_filters = np.shape(filters)
-	X = np.fft.fft(x).repeat(num_filters).reshape(N, num_filters)
-	fft_filters = np.vstack((filters, np.flipud(filters)))[:X.shape[0]]    # todo: hack??
+	fft_sample = np.fft.fft(x)
+	# import ipdb; ipdb.set_trace()
+	X = fft_sample.repeat(num_filters).reshape(N, num_filters)
+	# fft_filters = np.vstack((filters, np.flipud(filters)))[:X.shape[0]]    # todo: hack??
+	fft_filters = np.vstack((filters, np.flipud(filters)[1:filt_len-1]))    # dv: remove dc duplicate?
 
 	fft_subbands = fft_filters * X
 
@@ -368,7 +372,8 @@ def apply_filter(x, filter):
 	filt_len = len(filter)
 	X = np.fft.fft(x)
 
-	fft_filter = np.concatenate((filter, np.flipud(filter)))[:X.shape[0]]    # todo: hack??
+	# fft_filter = np.concatenate((filter, np.flipud(filter)))[:X.shape[0]]    # todo: hack??
+	fft_filter = np.concatenate((filter, np.flipud(filter)[1:filt_len-1]))   # dv: remove dc duplicate?
 
 	return np.real(np.fft.ifft(fft_filter * X))
 
@@ -549,6 +554,7 @@ def featurize_file(downsample, filename, limit, winlen):
 		header = stats.feat_header()
 		wins.append(stats.features())
 		labels.append(label)
+		#import ipdb; ipdb.set_trace()
 	# stats.display(0, None)
 	# stats.plots()
 	return header, wins, labels
@@ -603,22 +609,25 @@ if __name__ == "__main__":
 	# 	sys.exit(1)
 
 	filenames = (
-		# 'Lathrop Noisy.wav',
-		# 'Caltrain 2.wav',
-		# 'Lecture Hall Chatter.wav',
-		# 'Homestead Rd.wav',
-		# 'Sunnyvale Station.wav',
-		'Applause_-_enthusiastic2.wav',
-		# 'Bubbling_water.wav',
-		# 'Writing_with_pen_on_paper.wav',
-		# 'white_noise_5s.wav',
-		# 'chamber-choir-parallel-fifths.wav',
+		'applause-36.wav',
+		'birds-1.wav',
+		'crickets-1.wav',
+		'crowded-bytes.wav',
+		'crowded-ikea.wav',
+		'crowded-lecturehall.wav',
+		'road-homestead1.wav',
+		'station-menlopark.wav',
+		'station-sunnyvale.wav',
+		'subway-london.wav',
+		'thunderstorm-1.wav',
+		'thunderstorm-2.wav',
+		'train-menlopark.wav'
 
 	)
 	
 	winlen = 7;
 
-	header, wins, labels = get_features(filenames, 100, winlen, downsample=1)
+	header, wins, labels = get_features(filenames, 100, winlen, downsample=8)
 	#import ipdb; ipdb.set_trace()
 	print wins.shape
 	m, s = np.mean(wins, 0), np.std(wins, 0)
@@ -642,8 +651,8 @@ if __name__ == "__main__":
 	]
 	print header
 	for feat in [
-		#'subband',
-		#'a_',
+		# 'subband',
+		# 'a_',
 		#'e_',
 		'',
 		]:
@@ -654,7 +663,7 @@ if __name__ == "__main__":
 		for mod in mods:
 			
 			i_rand = np.random.permutation(len(labels));
-			n_error = 1;
+			n_error = 7;
 			m_error = len(labels)/n_error; # generate n_error points of training error data
 			e_tests = [0]*n_error;
 			e_trains = [0]*n_error;
@@ -673,11 +682,13 @@ if __name__ == "__main__":
 			xnum = (np.array(range(n_error))+1)*m_error
 			fig = plt.figure(figsize=(10, 10))
 			plt.plot(xnum,1-np.array(e_trains),xnum,1-np.array(e_tests))
-			font = {'family' : 'normal',
-				'weight' : 'bold',
-				'size'   : 8}
-			plt.rc('font', **font)
-			plt.title(mod)
+			plt.title(mod,fontsize=8)
+			# ipdb.set_trace()
+			plt.ylim([-0.1,0.8])
+			plt.xlim([0,len(labels)])
+			plt.xlabel('training samples',fontsize=18)
+			plt.ylabel('error',fontsize=18)
+			plt.grid()
 			plt.draw()
 	plt.show()
 
