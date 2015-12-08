@@ -536,6 +536,7 @@ def cache_to_disk(f):
 def featurize_file(downsample, filename, limit, winlen):
 	wins = []
 	labels = []
+	header = []
 
 	soundfile, fs, N = open_wavefile('../wavefiles/' + filename, target_rms=default_options['rms'])
 	if len(soundfile.shape) > 1:
@@ -594,23 +595,28 @@ def get_features(filenames, limit, winlen, downsample=1):
 	# 	labels.extend(labels_)
 	# return header, np.array(wins), np.array(labels)	
 
-def train_test(mod, X, y):
+@cache_to_disk
+def train_test(mod, X, y, model_name):
 	train = np.random.rand(X.shape[0]) < .8
 	test = ~train
-
 	mod.fit(X[train], y[train])
-		
+	return mod, train
+	
+def print_mod_results(mod, X, y, train):
+
 	print 'TRAINING:'
 	print sklearn.metrics.confusion_matrix(y[train], mod.predict(X[train]))
 	e_train = sklearn.metrics.accuracy_score(y[train], mod.predict(X[train]))
 	print e_train
 	print sklearn.metrics.classification_report(y[train], mod.predict(X[train]))
 	print 'TESTING:'
+	test = ~train
 	print sklearn.metrics.confusion_matrix(y[test], mod.predict(X[test]))
 	e_test = sklearn.metrics.accuracy_score(y[test], mod.predict(X[test]))
 	print e_test
 	print sklearn.metrics.classification_report(y[test], mod.predict(X[test]))
-	return mod, e_train, e_test
+	return e_train, e_test
+	
 
 
 def cumulative_train(wins_, labels, mod, n_error):
@@ -638,6 +644,23 @@ def cumulative_train(wins_, labels, mod, n_error):
 	plt.grid()
 	plt.draw()
 
+def plot_confusion_matrix(pred, labels, title='Confusion matrix', cmap=plt.cm.Blues):
+	labels_set = list(np.unique(labels))
+	confusion_matrix = sklearn.metrics.confusion_matrix(
+		pred, 
+		labels, 
+		labels=labels_set)
+	
+	plt.imshow(confusion_matrix, interpolation='nearest', cmap=cmap)
+	plt.title(title)
+	plt.colorbar()
+	tick_marks = np.arange(len(labels_set))
+	plt.xticks(tick_marks, labels_set, rotation=45)
+	plt.yticks(tick_marks, labels_set)
+	plt.tight_layout()
+	plt.ylabel('True label')
+	plt.xlabel('Predicted label')
+
 # Run ----------------------------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -648,13 +671,14 @@ if __name__ == "__main__":
 
 	winlen = 7;
 
-	header, wins, labels = get_features(filenames, 2000, winlen, downsample=5,
-		redo = True
+	header, wins, labels = get_features(filenames, 2000, winlen, downsample=7,
+		# redo = True
 	)
 
 	nwins = wins.shape[0]
 	wins = wins[np.isfinite(wins).all(1)]
 	print 'eliminated %s rows due to nan' % (nwins - wins.shape[0])
+	# import ipdb; ipdb.set_trace()
 
 	print wins.shape
 	m, s = np.mean(wins, 0), np.std(wins, 0)
@@ -683,8 +707,11 @@ if __name__ == "__main__":
 		('modulated', 'e_'),
 		('all_features', ''),
 		]
+
+	mods_trained = {}
 	# print header
-	res = pd.DataFrame(np.zeros((len(mods), len(subsets))), index=zip(*mods)[0], columns=zip(*subsets)[0])
+	res_train = pd.DataFrame(np.zeros((len(mods), len(subsets))), index=zip(*mods)[0], columns=zip(*subsets)[0])
+	res_test = pd.DataFrame(np.zeros((len(mods), len(subsets))), index=zip(*mods)[0], columns=zip(*subsets)[0])
 	for j, (fname, feat) in enumerate(subsets):
 		wins_ = wins[:, [i for i in xrange(wins.shape[1]) if header[i].startswith(feat)]]
 		print '\n\n\n********************              %s               ***********************' %feat
@@ -692,13 +719,34 @@ if __name__ == "__main__":
 
 		for i, (mod_name, mod) in enumerate(mods):
 			print mod
-			mod, e_train, e_test = train_test(mod, wins_, labels)
-			res.loc[mod_name, fname] = e_train
+			mod, train_mask = train_test(mod, wins_, labels, mod_name+fname,
+				# redo=True
+			)
+			e_train, e_test = print_mod_results(mod, wins_, labels, train_mask)
+			mods_trained[mod_name] = mod
+			res_train.loc[mod_name, fname] = e_train
+			res_test.loc[mod_name, fname] = e_test
 			print '\n\n'
-	res.loc['avg'] = res.mean(0)		
-	plt.matshow(res, cmap=plt.get_cmap('summer')); plt.colorbar()
-	print res.to_html(float_format=lambda x:'%.2f'%x)
-	print res
+	
+	res_train.loc['avg'] = res_train.mean(0)		
+	# plt.matshow(res, cmap=plt.get_cmap('summer')); plt.colorbar()
+	print '<h2>TRAIN:</h2>'
+	print res_train.to_html(float_format=lambda x:'%.2f'%x)
+	print '\n\n\n'
+	
+	res_test.loc['avg'] = res_test.mean(0)		
+	# plt.matshow(res, cmap=plt.get_cmap('summer')); plt.colorbar()
+	print '<h2>TEST:</h2>'
+	print res_test.to_html(float_format=lambda x:'%.2f'%x)
+
+
+
+	cm_mod =  'logistic regression, 1.0 regularization'
+	plot_confusion_matrix(
+		mods_trained[cm_mod].predict(wins_[~train_mask]), labels[~train_mask], 
+		title=cm_mod)
+	
+	# print res
 	plt.ion()
 	plt.show()
 
