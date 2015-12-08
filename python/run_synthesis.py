@@ -22,6 +22,8 @@ import pandas as pd
 from matplotlib import pyplot as plt
 import ipdb
 
+import wavio
+
 # Globals --------------------------------------------------------------------------
 import traceback
 
@@ -275,7 +277,8 @@ def plots(self):
 def open_wavefile(filename, target_rms=.01):
 	print "READING: " + filename
 	try:
-		[fs, wavefile] = read(filename)
+		wav = wavio.read(filename)
+		fs, wavefile = wav.rate, wav.data
 		# [fs, width, wavefile] = readwav(filename)
 	except:
 		print traceback.format_exc()
@@ -543,6 +546,9 @@ def featurize_file(downsample, filename, limit, winlen):
 	# n_wins = (N - win_size) // stride
 	n_wins = (N - win_size) // stride + 1
 	# import ipdb; ipdb.set_trace()
+	print n_wins, win_size, stride, N
+	if limit is None:
+		limit = n_wins
 	for i in xrange(min(limit, n_wins)):
 		stats = Compute(soundfile[i * stride:i * stride + win_size], fs, **default_options)
 		stats.make_stats()
@@ -555,21 +561,33 @@ def featurize_file(downsample, filename, limit, winlen):
 	return header, wins, labels
 
 
+def featurize_clos(downsample, limit, winlen, filename):
+	return featurize_file(downsample, filename, limit, winlen)
+
+
 @cache_to_disk
 def get_features(filenames, limit, winlen, downsample=1):
 	wins = []
 	labels = []
 	# import ipdb; ipdb.set_trace()
-	for filename in filenames:
-		# extract features
-		header, wins_, labels_ = featurize_file(downsample, filename, limit, winlen,
-			# redo=True
-		)
-		wins.extend(wins_)
-		labels.extend(labels_)
+	
+	import multiprocessing, functools
+	pool = multiprocessing.Pool(processes=6)
+	f = functools.partial(featurize_clos, downsample, limit, winlen)
+	results = pool.map(f, filenames)
+	pool.close(); pool.join()
+	headers, wins, labels = zip(*results)
+	return headers[0], np.array(sum(wins, [])), np.array(sum(labels, []))
 
-	return header, np.array(wins), np.array(labels)
-
+	
+	# for filename in filenames:
+	# 	# extract features
+	# 	header, wins_, labels_ = featurize_file(downsample, filename, limit, winlen,
+	# 		# redo=True
+	# 	)
+	# 	wins.extend(wins_)
+	# 	labels.extend(labels_)
+	# return header, np.array(wins), np.array(labels)	
 
 def train_test(mod, X, y):
 	train = np.random.rand(X.shape[0]) < .8
@@ -630,23 +648,30 @@ if __name__ == "__main__":
 	# 	print "no user input"
 	# 	sys.exit(1)
 
-	filenames = (
-		'Lathrop Noisy.wav',
-		'Caltrain 2.wav',
-		# 'Lecture Hall Chatter.wav',
-		# 'Homestead Rd.wav',
-		# 'Sunnyvale Station.wav',
-		# 'Applause_-_enthusiastic2.wav',
-		# 'Bubbling_water.wav',
-		# 'Writing_with_pen_on_paper.wav',
-		# 'white_noise_5s.wav',
-		# 'chamber-choir-parallel-fifths.wav',
+	# filenames = (
+	# 	'Lathrop Noisy.wav',
+	# 	'Caltrain 2.wav',
+	# 	# 'Lecture Hall Chatter.wav',
+	# 	# 'Homestead Rd.wav',
+	# 	# 'Sunnyvale Station.wav',
+	# 	# 'Applause_-_enthusiastic2.wav',
+	# 	# 'Bubbling_water.wav',
+	# 	# 'Writing_with_pen_on_paper.wav',
+	# 	# 'white_noise_5s.wav',
+	# 	# 'chamber-choir-parallel-fifths.wav',
 
-	)
-	
+	# )
+
+	filenames = tuple([fname for fname in os.listdir('wavefiles') if fname[-3:] == 'wav'])
+	print filenames
+	# map(lambda x: open_wavefile('wavefiles/' + x), filenames)
+
+
 	winlen = 7;
 
-	header, wins, labels = get_features(filenames, 100, winlen, downsample=8)
+	header, wins, labels = get_features(filenames, 2000, winlen, downsample=5,
+		redo = True
+	)
 	#import ipdb; ipdb.set_trace()
 	print wins.shape
 	m, s = np.mean(wins, 0), np.std(wins, 0)
@@ -685,7 +710,7 @@ if __name__ == "__main__":
 			
 			print mod
 			mod, e_train, e_test = train_test(mod, wins_, labels)
-			res.loc[mod_name, fname] = e_test
+			res.loc[mod_name, fname] = e_train
 			print '\n\n'
 	res.loc['avg'] = res.mean(0)		
 	plt.matshow(res, cmap=plt.get_cmap('summer')); plt.colorbar()
