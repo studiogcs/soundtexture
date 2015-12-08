@@ -17,9 +17,10 @@ import sklearn.ensemble
 import sklearn.tree
 import sklearn.linear_model
 import sklearn.svm
+import pandas as pd
 
 from matplotlib import pyplot as plt
-import pdb
+import ipdb
 
 # Globals --------------------------------------------------------------------------
 import traceback
@@ -586,10 +587,37 @@ def train_test(mod, X, y):
 	print 'TESTING:'
 	print sklearn.metrics.confusion_matrix(y[test], mod.predict(X[test]))
 	e_test = sklearn.metrics.accuracy_score(y[test], mod.predict(X[test]))
-	print e_train
+	print e_test
 	print sklearn.metrics.classification_report(y[test], mod.predict(X[test]))
 	return mod, e_train, e_test
 
+
+def cumulative_train(wins_, labels, mod, n_error):
+	i_rand = np.random.permutation(len(labels));
+	m_error = len(labels)/n_error; # generate n_error points of training error data
+	e_tests = [0]*n_error;
+	e_trains = [0]*n_error;
+	for i in xrange(n_error):
+		wins_e = wins_[i_rand[0:(i+1)*m_error],:]
+		labels_e = labels[i_rand[0:(i+1)*m_error]]
+
+		print mod
+		
+		# import ipdb; ipdb.set_trace()
+
+		mod, e_trains[i], e_tests[i] = train_test(mod, wins_e, labels_e)
+		print '\n\n'
+	
+	# import ipdb; ipdb.set_trace()
+	xnum = (np.array(range(n_error))+1)*m_error
+	fig = plt.figure(figsize=(10, 10))
+	plt.plot(xnum,1-np.array(e_trains),xnum,1-np.array(e_tests))
+	font = {'family' : 'normal',
+		'weight' : 'bold',
+		'size'   : 8}
+	plt.rc('font', **font)
+	plt.title(mod)
+	plt.draw()
 
 # Run ----------------------------------------------------------------------------------
 
@@ -628,59 +656,44 @@ if __name__ == "__main__":
 
 
 	mods = [
-		sklearn.ensemble.RandomForestClassifier(n_estimators=4, n_jobs=7),
-		sklearn.ensemble.RandomForestClassifier(n_estimators=20, n_jobs=7),
-		sklearn.ensemble.RandomForestClassifier(n_estimators=50, n_jobs=7),
-		sklearn.tree.DecisionTreeClassifier(max_depth=3),
-		sklearn.tree.DecisionTreeClassifier(max_depth=2),
-		sklearn.tree.DecisionTreeClassifier(),
-		sklearn.linear_model.LogisticRegression(C=.7),
-		sklearn.linear_model.LogisticRegression(),
-		sklearn.svm.SVC(kernel='rbf', C=.5),
-		sklearn.svm.SVC(kernel='rbf'),
+		('random forest 4 trees', sklearn.ensemble.RandomForestClassifier(n_estimators=4, n_jobs=7)),
+		('random forest 20 trees', sklearn.ensemble.RandomForestClassifier(n_estimators=20, n_jobs=7)),
+		('random forest 50 trees', sklearn.ensemble.RandomForestClassifier(n_estimators=50, n_jobs=7)),
+		('decision tree, max depth 3', sklearn.tree.DecisionTreeClassifier(max_depth=3)),
+		('decision tree, max depth 2', sklearn.tree.DecisionTreeClassifier(max_depth=2)),
+		('decision tree, no max depth', sklearn.tree.DecisionTreeClassifier()),
+		('logistic regression, 0.7 regularization', sklearn.linear_model.LogisticRegression(C=.7)),
+		('logistic regression, 1.0 regularization', sklearn.linear_model.LogisticRegression()),
+		('SVM, rbf kernel, .5 regularization', sklearn.svm.SVC(kernel='rbf', C=.5)),
+		('SVM, rbf kernel, 1.0 regularization', sklearn.svm.SVC(kernel='rbf')),
 
 	]
-	print header
-	for feat in [
-		#'subband',
-		#'a_',
-		#'e_',
-		'',
-		]:
+	subsets = [
+		('subband correlations', 'subband'),
+		('pre-modulation moments', 'a_'),
+		('modulated', 'e_'),
+		('all_features', ''),
+		]
+	# print header
+	res = pd.DataFrame(np.zeros((len(mods), len(subsets))), index=zip(*mods)[0], columns=zip(*subsets)[0])
+	for j, (fname, feat) in enumerate(subsets):
 		wins_ = wins[:, [i for i in xrange(wins.shape[1]) if header[i].startswith(feat)]]
 		print '\n\n\n********************              %s               ***********************' %feat
 		print wins_.shape
 
-		for mod in mods:
+		for i, (mod_name, mod) in enumerate(mods):
 			
-			i_rand = np.random.permutation(len(labels));
-			n_error = 7;
-			m_error = len(labels)/n_error; # generate n_error points of training error data
-			e_tests = [0]*n_error;
-			e_trains = [0]*n_error;
-			for i in range(n_error):
-				wins_e = wins_[i_rand[0:(i+1)*m_error],:]
-				labels_e = labels[i_rand[0:(i+1)*m_error]]
-
-				print mod
-				
-				# import ipdb; ipdb.set_trace()
-
-				mod, e_trains[i], e_tests[i] = train_test(mod, wins_e, labels_e)
-				print '\n\n'
-			
-			# import ipdb; ipdb.set_trace()
-			xnum = (np.array(range(n_error))+1)*m_error
-			fig = plt.figure(figsize=(10, 10))
-			plt.plot(xnum,1-np.array(e_trains),xnum,1-np.array(e_tests))
-			font = {'family' : 'normal',
-				'weight' : 'bold',
-				'size'   : 8}
-			plt.rc('font', **font)
-			plt.title(mod)
-			plt.draw()
+			print mod
+			mod, e_train, e_test = train_test(mod, wins_, labels)
+			res.loc[mod_name, fname] = e_test
+			print '\n\n'
+	res.loc['avg'] = res.mean(0)		
+	plt.matshow(res, cmap=plt.get_cmap('summer')); plt.colorbar()
+	print res.to_html(float_format=lambda x:'%.2f'%x)
+	print res
+	plt.ion()
 	plt.show()
-
+	import ipdb; ipdb.set_trace()
 
 	#
 	#
