@@ -20,7 +20,7 @@ import sklearn.svm
 import pandas as pd
 
 from matplotlib import pyplot as plt
-import ipdb
+import ipdb	 	# DEBUG
 
 import wavio
 
@@ -81,7 +81,7 @@ class Compute(object):
 		print 'generating band filters...'
 		low = self.options['low_freq_limit']
 		high = 1. * self.fs / 2
-		# import ipdb; ipdb.set_trace()
+
 		cutoffs = erb2freq(np.arange(
 			freq2erb(low),
 			freq2erb(high),
@@ -141,7 +141,7 @@ class Compute(object):
 
 		# compute statistics:
 		print "Computing statistics"
-		# import ipdb; ipdb.set_trace()
+
 		###   subband stats
 		num_subbands = np.shape(self.subbands)[1]
 		self.mean = np.mean(self.subbands, 0)
@@ -286,12 +286,12 @@ def open_wavefile(filename, target_rms=.01):
 		sys.exit(1)
 
 	x = np.array(wavefile, dtype=float)
-	# ipdb.set_trace()
+
 	x = x*(2**-15) # normalizing to match MATLAB double representation
 	# print "\nfirst few samples of x:\n", x[0:5,:]
 	dim = x.shape
 	num_chan = 1
-	# import ipdb; ipdb.set_trace()
+
 	# normalize
 	if len(dim) > 1:
 		num_chan = dim[1]
@@ -336,7 +336,7 @@ def make_erb_cos_filters(N, fs, num_bands, cutoffs):
 		nyquist = 1. * fs / 2 * (1 - 1 / N)
 	f = np.arange(0, N_f) * nyquist / N_f
 	filters = np.zeros((N_f + 1, num_bands + 2))
-	# import ipdb; ipdb.set_trace()
+
 	for i in range(0, num_bands):
 		l = cutoffs[i]
 		h = cutoffs[i + 2]
@@ -360,7 +360,7 @@ def apply_filters(x, filters):
 	N = np.shape(x)[0]
 	filt_len, num_filters = np.shape(filters)
 	fft_sample = np.fft.fft(x)
-	# import ipdb; ipdb.set_trace()
+
 	X = fft_sample.repeat(num_filters).reshape(N, num_filters)
 	# fft_filters = np.vstack((filters, np.flipud(filters)))[:X.shape[0]]    # todo: hack??
 	fft_filters = np.vstack((filters, np.flipud(filters)[1:filt_len-1]))    # dv: remove dc duplicate?
@@ -537,7 +537,7 @@ def featurize_file(downsample, filename, limit, winlen):
 	wins = []
 	labels = []
 
-	soundfile, fs, N = open_wavefile('wavefiles/' + filename, target_rms=default_options['rms'])
+	soundfile, fs, N = open_wavefile('../wavefiles/' + filename, target_rms=default_options['rms'])
 	if len(soundfile.shape) > 1:
 		print "\nfirst few samples:\n", soundfile[0:5,:]
 		soundfile = soundfile.mean(1)
@@ -550,7 +550,7 @@ def featurize_file(downsample, filename, limit, winlen):
 	stride = win_size // 2
 	# n_wins = (N - win_size) // stride
 	n_wins = (N - win_size) // stride + 1
-	# import ipdb; ipdb.set_trace()
+
 	print n_wins, win_size, stride, N
 	if limit is None:
 		limit = n_wins
@@ -561,7 +561,7 @@ def featurize_file(downsample, filename, limit, winlen):
 		header = stats.feat_header()
 		wins.append(stats.features())
 		labels.append(label)
-		#import ipdb; ipdb.set_trace()
+
 	# stats.display(0, None)
 	# stats.plots()
 	return header, wins, labels
@@ -575,7 +575,6 @@ def featurize_clos(downsample, limit, winlen, filename):
 def get_features(filenames, limit, winlen, downsample=1):
 	wins = []
 	labels = []
-	# import ipdb; ipdb.set_trace()
 	
 	import multiprocessing, functools
 	pool = multiprocessing.Pool(processes=6)
@@ -600,9 +599,7 @@ def train_test(mod, X, y):
 	test = ~train
 
 	mod.fit(X[train], y[train])
-	
-	# import ipdb; ipdb.set_trace()
-	
+		
 	print 'TRAINING:'
 	print sklearn.metrics.confusion_matrix(y[train], mod.predict(X[train]))
 	e_train = sklearn.metrics.accuracy_score(y[train], mod.predict(X[train]))
@@ -627,12 +624,9 @@ def cumulative_train(wins_, labels, mod, n_error):
 
 		print mod
 		
-		# import ipdb; ipdb.set_trace()
-
 		mod, e_trains[i], e_tests[i] = train_test(mod, wins_e, labels_e)
 		print '\n\n'
 	
-	# import ipdb; ipdb.set_trace()
 	xnum = (np.array(range(n_error))+1)*m_error
 	fig = plt.figure(figsize=(10, 10))
 	plt.plot(xnum,1-np.array(e_trains),xnum,1-np.array(e_tests))
@@ -648,9 +642,9 @@ def cumulative_train(wins_, labels, mod, n_error):
 
 if __name__ == "__main__":
 
-	filenames = tuple([fname for fname in os.listdir('wavefiles') if fname[-3:] == 'wav'])
+	filenames = tuple([fname for fname in os.listdir('../wavefiles') if fname[-3:] == 'wav'])
 	print filenames
-	# map(lambda x: open_wavefile('wavefiles/' + x), filenames)
+	# map(lambda x: open_wavefile('../wavefiles/' + x), filenames)
 
 	winlen = 7;
 
@@ -658,8 +652,6 @@ if __name__ == "__main__":
 		redo = True
 	)
 
-	#import ipdb; ipdb.set_trace()
-	
 	nwins = wins.shape[0]
 	wins = wins[np.isfinite(wins).all(1)]
 	print 'eliminated %s rows due to nan' % (nwins - wins.shape[0])
@@ -709,7 +701,6 @@ if __name__ == "__main__":
 	print res
 	plt.ion()
 	plt.show()
-	# import ipdb; ipdb.set_trace()
 
 	#
 	#
