@@ -596,7 +596,7 @@ def train_test(mod, X, y, model_name):
 	test = ~train
 
 	mod.fit(X[train], y[train])
-	return mod, e_train, e_test, train
+	return mod, train
 	
 def print_mod_results(mod, X, y, train):
 	print 'TRAINING:'
@@ -610,6 +610,7 @@ def print_mod_results(mod, X, y, train):
 	e_test = sklearn.metrics.accuracy_score(y[test], mod.predict(X[test]))
 	print e_test
 	print sklearn.metrics.classification_report(y[test], mod.predict(X[test]))
+	return e_train, e_test
 	
 
 
@@ -735,8 +736,10 @@ if __name__ == "__main__":
 		for i, (mod_name, mod) in enumerate(mods):
 			
 			print mod
-			mod, e_train, e_test, train_mask = train_test(mod, wins_, labels, mod_name+fname)
-			print_mod_results(mod, wins_, labels, train_mask)
+			mod, train_mask = train_test(mod, wins_, labels, mod_name+fname,
+				# redo=True
+			)
+			e_train, e_test = print_mod_results(mod, wins_, labels, train_mask)
 			mods_trained[mod_name] = mod
 			res_train.loc[mod_name, fname] = e_train
 			res_test.loc[mod_name, fname] = e_test
