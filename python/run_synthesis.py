@@ -540,7 +540,6 @@ def featurize_file(downsample, filename, limit, winlen):
 
 	soundfile, fs, N = open_wavefile('../wavefiles/' + filename, target_rms=default_options['rms'])
 	if len(soundfile.shape) > 1:
-		print "\nfirst few samples:\n", soundfile[0:5,:]
 		soundfile = soundfile.mean(1)
 	print "\nfirst few samples:\n", soundfile[0:5]
 	soundfile = soundfile[::downsample]
@@ -619,7 +618,7 @@ def print_mod_results(mod, X, y, train):
 	
 
 
-def cumulative_train(wins_, labels, mod, n_error):
+def cumulative_train(wins_, labels, mod, n_error, model_name):
 	i_rand = np.random.permutation(len(labels));
 	m_error = len(labels)/n_error; # generate n_error points of training error data
 	e_tests = [0]*n_error;
@@ -627,11 +626,17 @@ def cumulative_train(wins_, labels, mod, n_error):
 	for i in xrange(n_error):
 		wins_e = wins_[i_rand[0:(i+1)*m_error],:]
 		labels_e = labels[i_rand[0:(i+1)*m_error]]
-
-		print mod
 		
-		mod, e_trains[i], e_tests[i] = train_test(mod, wins_e, labels_e)
+		mod, train_mask = train_test(mod, wins_e, labels_e, model_name)
+		e_train_new, e_test_new = print_mod_results(mod, wins_e, labels_e, train_mask)
+		
+		
+		e_trains[i] = e_train_new
+		e_tests[i] = e_test_new
+
 		print '\n\n'
+	
+	#ipdb.set_trace()
 	
 	xnum = (np.array(range(n_error))+1)*m_error
 	fig = plt.figure(figsize=(10, 10))
@@ -702,9 +707,9 @@ if __name__ == "__main__":
 	]
 
 	subsets = [
-		('subband correlations', 'subband'),
-		('pre-modulation moments', 'a_'),
-		('modulated', 'e_'),
+		# ('subband correlations', 'subband'),
+		# ('pre-modulation moments', 'a_'),
+		# ('modulated', 'e_'),
 		('all_features', ''),
 		]
 
@@ -722,11 +727,13 @@ if __name__ == "__main__":
 			mod, train_mask = train_test(mod, wins_, labels, mod_name+fname,
 				# redo=True
 			)
+			
 			e_train, e_test = print_mod_results(mod, wins_, labels, train_mask)
 			mods_trained[mod_name] = mod
 			res_train.loc[mod_name, fname] = e_train
 			res_test.loc[mod_name, fname] = e_test
 			print '\n\n'
+			cumulative_train(wins_, labels, mod, 5, mod_name+fname)
 	
 	res_train.loc['avg'] = res_train.mean(0)		
 	# plt.matshow(res, cmap=plt.get_cmap('summer')); plt.colorbar()
@@ -741,13 +748,13 @@ if __name__ == "__main__":
 
 
 
-	cm_mod =  'logistic regression, 1.0 regularization'
-	plot_confusion_matrix(
-		mods_trained[cm_mod].predict(wins_[~train_mask]), labels[~train_mask], 
-		title=cm_mod)
+	# cm_mod =  'logistic regression, 1.0 regularization'
+	# plot_confusion_matrix(
+	#	mods_trained[cm_mod].predict(wins_[~train_mask]), labels[~train_mask],
+	#	title=cm_mod)
 	
 	# print res
-	plt.ion()
+	# plt.ion()
 	plt.show()
 
 	#
