@@ -577,6 +577,8 @@ def get_features(filenames, limit, winlen, downsample=1):
 	wins = []
 	labels = []
 	
+	# ipdb.set_trace()
+
 	import multiprocessing, functools
 	pool = multiprocessing.Pool(processes=6)
 	f = functools.partial(featurize_clos, downsample, limit, winlen)
@@ -617,8 +619,6 @@ def print_mod_results(mod, X, y, train):
 	print sklearn.metrics.classification_report(y[test], mod.predict(X[test]))
 	return e_train, e_test
 	
-
-
 def cumulative_train(wins_, labels, mod, n_error):
 	i_rand = np.random.permutation(len(labels));
 	m_error = len(labels)/n_error; # generate n_error points of training error data
@@ -643,6 +643,36 @@ def cumulative_train(wins_, labels, mod, n_error):
 	plt.ylabel('error',fontsize=18)
 	plt.grid()
 	plt.draw()
+
+def pca(filenames, wins_, labels, mod):	
+	labels = np.array(labels)
+	labels_set = [l[:4].lower() for l in filenames]
+	
+	train = np.random.rand(len(wins_)) < .8
+	
+	m, v = np.mean(wins_[train], 0), np.var(wins_[train], 0)
+	# scale = lambda X: (X - m) / s
+
+	# mod = sklearn.linear_model.LogisticRegression(C=.7).fit(wins_[train], labels[train])
+	# mod = sklearn.svm.SVC(kernel='rbf', C=.56).fit(wins_[train], labels[train])
+	# print sklearn.metrics.confusion_matrix(labels[train], mod.predict(wins_[train]))
+	# print sklearn.metrics.classification_report(labels[train], mod.predict(wins_[train]))
+	# print sklearn.metrics.confusion_matrix(labels[~train], mod.predict(wins_[~train]))
+	# print sklearn.metrics.classification_report(labels[~train], mod.predict(wins_[~train]))
+	
+	u, s, v = np.linalg.svd(wins_)
+	X = sklearn.manifold.TSNE().fit_transform(u[:, :33])
+	# V, S, U_t = np.linalg.svd(wins_)
+	# X = V[:, :2]
+	
+	colors = ['r', 'g', 'b', 'y', 'k']
+	plt.figure()
+	plt.scatter(X[:, 0], X[:, 1],
+		c=[colors[labels_set.index(label)] for label in labels])
+	plt.figure()
+	plt.scatter(u[:, 0], u[:, 1],
+		c=[colors[labels_set.index(label)] for label in labels])
+	# plt.show()
 
 def plot_confusion_matrix(pred, labels, title='Confusion matrix', cmap=plt.cm.Blues):
 	labels_set = list(np.unique(labels))
@@ -671,6 +701,8 @@ if __name__ == "__main__":
 
 	winlen = 7;
 
+	# ipdb.set_trace()
+
 	header, wins, labels = get_features(filenames, 2000, winlen, downsample=7,
 		# redo = True
 	)
@@ -678,7 +710,7 @@ if __name__ == "__main__":
 	nwins = wins.shape[0]
 	wins = wins[np.isfinite(wins).all(1)]
 	print 'eliminated %s rows due to nan' % (nwins - wins.shape[0])
-	# import ipdb; ipdb.set_trace()
+	# ipdb.set_trace()
 
 	print wins.shape
 	m, s = np.mean(wins, 0), np.std(wins, 0)
@@ -747,44 +779,5 @@ if __name__ == "__main__":
 		title=cm_mod)
 	
 	# print res
-	plt.ion()
+	# plt.ion()
 	plt.show()
-
-	#
-	#
-	# labels = np.array(labels)
-	# labels_set = [l[:4].lower() for l in filenames]
-	#
-	# train = np.random.rand(len(wins)) < .8
-	#
-	# m, v = np.mean(wins[train], 0), np.var(wins[train], 0)
-	# # scale = lambda X: (X - m) / s
-	# mod = sklearn.linear_model.LogisticRegression(C=.7).fit(wins[train], labels[train])
-	# # mod = sklearn.svm.SVC(kernel='rbf', C=.56).fit(wins[train], labels[train])
-	# print sklearn.metrics.confusion_matrix(labels[train], mod.predict(wins[train]))
-	# print sklearn.metrics.classification_report(labels[train], mod.predict(wins[train]))
-	# print sklearn.metrics.confusion_matrix(labels[~train], mod.predict(wins[~train]))
-	# print sklearn.metrics.classification_report(labels[~train], mod.predict(wins[~train]))
-	#
-	# u, s, v = np.linalg.svd(wins)
-	# X = sklearn.manifold.TSNE().fit_transform(u[:, :33])
-	# # V, S, U_t = np.linalg.svd(wins)
-	# # X = V[:, :2]
-	#
-	# colors = ['r', 'g', 'b', 'y', 'k']
-	# plt.figure()
-	# plt.scatter(X[:, 0], X[:, 1],
-	# 	c=[colors[labels_set.index(label)] for label in labels])
-	# plt.figure()
-	# plt.scatter(u[:, 0], u[:, 1],
-	# 	c=[colors[labels_set.index(label)] for label in labels])
-	# # plt.show()
-	# print wins
-	#
-	#
-	#
-	#
-	#
-	#
-	#
-	#
