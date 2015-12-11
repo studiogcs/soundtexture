@@ -43,3 +43,9 @@ Thumbs.db
 # wavefiles
 ######################
 *.wav
+
+# images
+######################
+*.png
+*.pdf
+*.fig
