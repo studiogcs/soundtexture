@@ -12,9 +12,9 @@
   <tbody>
     <tr>
       <th>random forest 4 trees</th>
-      <td>0.97</td>
+      <td>0.96</td>
       <td>0.99</td>
-      <td>0.99</td>
+      <td>0.98</td>
       <td>0.99</td>
     </tr>
     <tr>
@@ -33,17 +33,17 @@
     </tr>
     <tr>
       <th>decision tree, max depth 3</th>
-      <td>0.56</td>
-      <td>0.69</td>
-      <td>0.71</td>
-      <td>0.73</td>
+      <td>0.50</td>
+      <td>0.60</td>
+      <td>0.58</td>
+      <td>0.59</td>
     </tr>
     <tr>
       <th>decision tree, max depth 2</th>
+      <td>0.41</td>
+      <td>0.47</td>
       <td>0.48</td>
-      <td>0.53</td>
-      <td>0.55</td>
-      <td>0.53</td>
+      <td>0.47</td>
     </tr>
     <tr>
       <th>decision tree, no max depth</th>
@@ -53,37 +53,58 @@
       <td>1.00</td>
     </tr>
     <tr>
+      <th>logistic regression, 0.1 regularization</th>
+      <td>0.80</td>
+      <td>0.83</td>
+      <td>1.00</td>
+      <td>1.00</td>
+    </tr>
+    <tr>
       <th>logistic regression, 0.7 regularization</th>
-      <td>0.94</td>
-      <td>0.94</td>
+      <td>0.83</td>
+      <td>0.90</td>
       <td>1.00</td>
       <td>1.00</td>
     </tr>
     <tr>
       <th>logistic regression, 1.0 regularization</th>
-      <td>0.95</td>
-      <td>0.95</td>
+      <td>0.83</td>
+      <td>0.91</td>
       <td>1.00</td>
       <td>1.00</td>
     </tr>
     <tr>
       <th>SVM, rbf kernel, .5 regularization</th>
-      <td>0.81</td>
-      <td>0.85</td>
-      <td>0.96</td>
-      <td>0.96</td>
+      <td>0.71</td>
+      <td>0.79</td>
+      <td>0.95</td>
+      <td>0.95</td>
     </tr>
     <tr>
       <th>SVM, rbf kernel, 1.0 regularization</th>
-      <td>0.96</td>
-      <td>0.91</td>
+      <td>0.90</td>
+      <td>0.86</td>
       <td>0.98</td>
       <td>0.99</td>
     </tr>
     <tr>
+      <th>GradientBoostingClassifier</th>
+      <td>0.94</td>
+      <td>0.91</td>
+      <td>0.99</td>
+      <td>1.00</td>
+    </tr>
+    <tr>
+      <th>ENSEMBLE</th>
+      <td>0.98</td>
+      <td>1.00</td>
+      <td>1.00</td>
+      <td>1.00</td>
+    </tr>
+    <tr>
       <th>avg</th>
+      <td>0.84</td>
       <td>0.87</td>
-      <td>0.89</td>
       <td>0.92</td>
       <td>0.92</td>
     </tr>
@@ -107,80 +128,101 @@
   <tbody>
     <tr>
       <th>random forest 4 trees</th>
-      <td>0.68</td>
-      <td>0.95</td>
-      <td>0.89</td>
-      <td>0.93</td>
+      <td>0.25</td>
+      <td>0.45</td>
+      <td>0.46</td>
+      <td>0.45</td>
     </tr>
     <tr>
       <th>random forest 20 trees</th>
-      <td>0.81</td>
-      <td>0.96</td>
-      <td>0.96</td>
-      <td>0.96</td>
+      <td>0.30</td>
+      <td>0.52</td>
+      <td>0.49</td>
+      <td>0.47</td>
     </tr>
     <tr>
       <th>random forest 50 trees</th>
-      <td>0.86</td>
-      <td>0.95</td>
-      <td>0.94</td>
-      <td>0.97</td>
+      <td>0.33</td>
+      <td>0.49</td>
+      <td>0.49</td>
+      <td>0.49</td>
     </tr>
     <tr>
       <th>decision tree, max depth 3</th>
-      <td>0.51</td>
-      <td>0.72</td>
-      <td>0.72</td>
-      <td>0.70</td>
+      <td>0.17</td>
+      <td>0.27</td>
+      <td>0.35</td>
+      <td>0.32</td>
     </tr>
     <tr>
       <th>decision tree, max depth 2</th>
-      <td>0.44</td>
-      <td>0.50</td>
-      <td>0.53</td>
-      <td>0.54</td>
+      <td>0.15</td>
+      <td>0.28</td>
+      <td>0.28</td>
+      <td>0.27</td>
     </tr>
     <tr>
       <th>decision tree, no max depth</th>
-      <td>0.74</td>
-      <td>0.90</td>
-      <td>0.91</td>
-      <td>0.90</td>
+      <td>0.25</td>
+      <td>0.42</td>
+      <td>0.40</td>
+      <td>0.43</td>
+    </tr>
+    <tr>
+      <th>logistic regression, 0.1 regularization</th>
+      <td>0.25</td>
+      <td>0.41</td>
+      <td>0.51</td>
+      <td>0.51</td>
     </tr>
     <tr>
       <th>logistic regression, 0.7 regularization</th>
-      <td>0.76</td>
-      <td>0.86</td>
-      <td>0.98</td>
-      <td>0.97</td>
+      <td>0.25</td>
+      <td>0.43</td>
+      <td>0.51</td>
+      <td>0.51</td>
     </tr>
     <tr>
       <th>logistic regression, 1.0 regularization</th>
-      <td>0.73</td>
-      <td>0.90</td>
-      <td>0.97</td>
-      <td>0.96</td>
+      <td>0.24</td>
+      <td>0.43</td>
+      <td>0.51</td>
+      <td>0.51</td>
     </tr>
     <tr>
       <th>SVM, rbf kernel, .5 regularization</th>
-      <td>0.70</td>
-      <td>0.84</td>
-      <td>0.94</td>
-      <td>0.91</td>
+      <td>0.28</td>
+      <td>0.43</td>
+      <td>0.48</td>
+      <td>0.47</td>
     </tr>
     <tr>
       <th>SVM, rbf kernel, 1.0 regularization</th>
-      <td>0.72</td>
-      <td>0.85</td>
-      <td>0.97</td>
-      <td>0.95</td>
+      <td>0.28</td>
+      <td>0.45</td>
+      <td>0.49</td>
+      <td>0.50</td>
+    </tr>
+    <tr>
+      <th>GradientBoostingClassifier</th>
+      <td>0.26</td>
+      <td>0.38</td>
+      <td>0.41</td>
+      <td>0.42</td>
+    </tr>
+    <tr>
+      <th>ENSEMBLE</th>
+      <td>0.11</td>
+      <td>0.29</td>
+      <td>0.32</td>
+      <td>0.32</td>
     </tr>
     <tr>
       <th>avg</th>
-      <td>0.69</td>
-      <td>0.84</td>
-      <td>0.88</td>
-      <td>0.88</td>
+      <td>0.24</td>
+      <td>0.40</td>
+      <td>0.44</td>
+      <td>0.44</td>
     </tr>
   </tbody>
 </table>

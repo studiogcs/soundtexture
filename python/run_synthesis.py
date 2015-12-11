@@ -608,12 +608,12 @@ def get_features(filenames, limit, winlen, downsample=1):
 def train_mask(y, meta):
 	lab_fn = {}
 	for label, filename in zip(y, meta):
-		lab_fn[label] = lab_fn.get(label, set()) | {fname}
+		lab_fn[label] = lab_fn.get(label, set()) | {filename}
 
 	test_fs = {}
 	for label, fnames in lab_fn.iteritems():
 		if len(fnames) > 1:
-			test_fs[label] = list(fnames)[np.random.random_integer(len(fnames)) - 1]
+			test_fs[label] = list(fnames)[np.random.random_integers(len(fnames)) - 1]
 
 	train = np.zeros(y.shape[0]).astype(bool)
 	val = np.zeros(y.shape[0]).astype(bool)
@@ -776,6 +776,7 @@ if __name__ == "__main__":
 		('decision tree, max depth 3', sklearn.tree.DecisionTreeClassifier(max_depth=3)),
 		('decision tree, max depth 2', sklearn.tree.DecisionTreeClassifier(max_depth=2)),
 		('decision tree, no max depth', sklearn.tree.DecisionTreeClassifier()),
+		('logistic regression, 0.1 regularization', sklearn.linear_model.LogisticRegression(C=.1)),
 		('logistic regression, 0.7 regularization', sklearn.linear_model.LogisticRegression(C=.7)),
 		('logistic regression, 1.0 regularization', sklearn.linear_model.LogisticRegression()),
 		('SVM, rbf kernel, .5 regularization', sklearn.svm.SVC(kernel='rbf', C=.5, probability=True)),
@@ -785,9 +786,9 @@ if __name__ == "__main__":
 	]
 
 	subsets = [
-		# ('subband correlations', 'subband'),
-		# ('pre-modulation moments', 'a_'),
-		# ('modulated', 'e_'),
+		('subband correlations', 'subband'),
+		('pre-modulation moments', 'a_'),
+		('modulated', 'e_'),
 		('all_features', ''),
 		]
 
@@ -826,17 +827,19 @@ if __name__ == "__main__":
 
 		print 'ENSEMBLE'
 		mod_name = 'ENSEMBLE'
-		mod = sklearn.ensemble.GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=2)
+		# mod = sklearn.ensemble.GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=2)
+		mod = sklearn.linear_model.LogisticRegression()
+		print mod
 		mod = run_model(mod, prob_pred[val_mask], labels[val_mask], fname+'ENSEMBLE')
-		val_or_test = np.logical_or(val_mask, test_mask)
-		e_train, e_test = print_mod_results(mod, prob_pred, labels, val_or_test)
+		val_or_train = np.logical_or(val_mask, train_mask)
+		e_train, e_test = print_mod_results(mod, prob_pred, labels, val_or_train)
 		mods_trained[mod_name] = mod
 		res_train.loc[mod_name, fname] = e_train
 		res_test.loc[mod_name, fname] = e_test
 		print '\n\n'
 		title = '%s__%s' % (fname, mod_name)
 		plot_confusion_matrix(
-		mod.predict(wins_[test_mask]), labels[test_mask], 
+		mod.predict(prob_pred[test_mask]), labels[test_mask], 
 			title=title)
 		plt.savefig('figures/confusions/' + title + '.png')
 
