@@ -20,7 +20,7 @@ import sklearn.svm
 import pandas as pd
 
 from matplotlib import pyplot as plt
-import ipdb
+import ipdb	 	# DEBUG
 
 import wavio
 
@@ -81,7 +81,7 @@ class Compute(object):
 		print 'generating band filters...'
 		low = self.options['low_freq_limit']
 		high = 1. * self.fs / 2
-		# import ipdb; ipdb.set_trace()
+
 		cutoffs = erb2freq(np.arange(
 			freq2erb(low),
 			freq2erb(high),
@@ -141,7 +141,7 @@ class Compute(object):
 
 		# compute statistics:
 		print "Computing statistics"
-		# import ipdb; ipdb.set_trace()
+
 		###   subband stats
 		num_subbands = np.shape(self.subbands)[1]
 		self.mean = np.mean(self.subbands, 0)
@@ -286,21 +286,22 @@ def open_wavefile(filename, target_rms=.01):
 		sys.exit(1)
 
 	x = np.array(wavefile, dtype=float)
+
 	x = x*(2**-15) # normalizing to match MATLAB double representation
 	# print "\nfirst few samples of x:\n", x[0:5,:]
 	dim = x.shape
 	num_chan = 1
-	# import ipdb; ipdb.set_trace()
+
 	# normalize
 	if len(dim) > 1:
 		num_chan = dim[1]
 		for c in range(0, num_chan):
 			rms = np.sqrt(np.mean(np.square(x[:, c])))
-			x[:, c] = 1. * x[:, c] / rms * target_rms
+			x[:, c] = 1. * x[:, c] / rms * target_rms + np.random.rand(x.shape[0])*1e-20 # adding noise for files with fake zero data
 	else:
 		# x = x[0:140000] # debug: comment out
 		rms = np.sqrt(np.mean(np.square(x)))
-		x = 1. * x / rms * target_rms
+		x = 1. * x / rms * target_rms + np.random.rand(x.shape[0])*1e-20 # adding noise for files with fake zero data
 	num_frames = x.shape[0]
 
 	print "\tsample rate: ", fs, "\n\t# samples: ", num_frames, "\n\t# channels: ", num_chan
@@ -335,7 +336,7 @@ def make_erb_cos_filters(N, fs, num_bands, cutoffs):
 		nyquist = 1. * fs / 2 * (1 - 1 / N)
 	f = np.arange(0, N_f) * nyquist / N_f
 	filters = np.zeros((N_f + 1, num_bands + 2))
-	# import ipdb; ipdb.set_trace()
+
 	for i in range(0, num_bands):
 		l = cutoffs[i]
 		h = cutoffs[i + 2]
@@ -358,8 +359,11 @@ def apply_filters(x, filters):
 
 	N = np.shape(x)[0]
 	filt_len, num_filters = np.shape(filters)
-	X = np.fft.fft(x).repeat(num_filters).reshape(N, num_filters)
-	fft_filters = np.vstack((filters, np.flipud(filters)))[:X.shape[0]]    # todo: hack??
+	fft_sample = np.fft.fft(x)
+
+	X = fft_sample.repeat(num_filters).reshape(N, num_filters)
+	# fft_filters = np.vstack((filters, np.flipud(filters)))[:X.shape[0]]    # todo: hack??
+	fft_filters = np.vstack((filters, np.flipud(filters)[1:filt_len-1]))    # dv: remove dc duplicate?
 
 	fft_subbands = fft_filters * X
 
@@ -372,7 +376,8 @@ def apply_filter(x, filter):
 	filt_len = len(filter)
 	X = np.fft.fft(x)
 
-	fft_filter = np.concatenate((filter, np.flipud(filter)))[:X.shape[0]]    # todo: hack??
+	# fft_filter = np.concatenate((filter, np.flipud(filter)))[:X.shape[0]]    # todo: hack??
+	fft_filter = np.concatenate((filter, np.flipud(filter)[1:filt_len-1]))   # dv: remove dc duplicate?
 
 	return np.real(np.fft.ifft(fft_filter * X))
 
@@ -533,9 +538,8 @@ def featurize_file(downsample, filename, limit, winlen):
 	labels = []
 	header = []
 
-	soundfile, fs, N = open_wavefile('wavefiles/' + filename, target_rms=default_options['rms'])
+	soundfile, fs, N = open_wavefile('../wavefiles/' + filename, target_rms=default_options['rms'])
 	if len(soundfile.shape) > 1:
-		print "\nfirst few samples:\n", soundfile[0:5,:]
 		soundfile = soundfile.mean(1)
 	print "\nfirst few samples:\n", soundfile[0:5]
 	soundfile = soundfile[::downsample]
@@ -546,7 +550,7 @@ def featurize_file(downsample, filename, limit, winlen):
 	stride = win_size // 2
 	# n_wins = (N - win_size) // stride
 	n_wins = (N - win_size) // stride + 1
-	# import ipdb; ipdb.set_trace()
+
 	print n_wins, win_size, stride, N
 	if limit is None:
 		limit = n_wins
@@ -557,6 +561,7 @@ def featurize_file(downsample, filename, limit, winlen):
 		header = stats.feat_header()
 		wins.append(stats.features())
 		labels.append(label)
+
 	# stats.display(0, None)
 	# stats.plots()
 	return header, wins, labels
@@ -572,7 +577,10 @@ def get_features(filenames, limit, winlen, downsample=1):
 	labels = []
 	meta = []
 	# import ipdb; ipdb.set_trace()
+
 	
+	# ipdb.set_trace()
+
 	import multiprocessing, functools
 	pool = multiprocessing.Pool(processes=6)
 	f = functools.partial(featurize_clos, downsample, limit, winlen)
@@ -599,14 +607,31 @@ def get_features(filenames, limit, winlen, downsample=1):
 	# return header, np.array(wins), np.array(labels)	
 
 @cache_to_disk
-def train_test(mod, X, y, model_name):
-	train = np.random.rand(X.shape[0]) < .8
-	test = ~train
+def train_test(mod, X, y, model_name, meta):
+	lab_fn = {}
+	for label, filename in zip(y, meta):
+		lab_fn[label] = lab_fn.get(label, []) + [fname]
 
+	test_fs = {}
+	for label, fnames in lab_fn.iteritems():
+		if len(fnames) > 1:
+			test_fs[label] = fnames[np.random.random_integer(len(fnames)) - 1]
+
+	train_ = np.zeros(X.shape[0]).astype(bool)
+	for i in xrange(X.shape[0]):
+		label = labels[i]
+		source = meta[i]
+		fnames = lab_fn[label]
+		if len(fnames) > 1:
+			train_[i] = source != test_fs[label]
+		else:
+			train_[i] = np.random.rand() < .8
+	test = ~train
 	mod.fit(X[train], y[train])
 	return mod, train
 	
 def print_mod_results(mod, X, y, train):
+
 	print 'TRAINING:'
 	print sklearn.metrics.confusion_matrix(y[train], mod.predict(X[train]))
 	e_train = sklearn.metrics.accuracy_score(y[train], mod.predict(X[train]))
@@ -620,9 +645,7 @@ def print_mod_results(mod, X, y, train):
 	print sklearn.metrics.classification_report(y[test], mod.predict(X[test]))
 	return e_train, e_test
 	
-
-
-def cumulative_train(wins_, labels, mod, n_error):
+def cumulative_train(wins_, labels, mod, n_error, model_name):
 	i_rand = np.random.permutation(len(labels));
 	m_error = len(labels)/n_error; # generate n_error points of training error data
 	e_tests = [0]*n_error;
@@ -630,24 +653,58 @@ def cumulative_train(wins_, labels, mod, n_error):
 	for i in xrange(n_error):
 		wins_e = wins_[i_rand[0:(i+1)*m_error],:]
 		labels_e = labels[i_rand[0:(i+1)*m_error]]
-
-		print mod
 		
-		# import ipdb; ipdb.set_trace()
+		mod, train_mask = train_test(mod, wins_e, labels_e, model_name)
+		e_train_new, e_test_new = print_mod_results(mod, wins_e, labels_e, train_mask)
+		
+		
+		e_trains[i] = e_train_new
+		e_tests[i] = e_test_new
 
-		mod, e_trains[i], e_tests[i] = train_test(mod, wins_e, labels_e)
 		print '\n\n'
 	
-	# import ipdb; ipdb.set_trace()
+	#ipdb.set_trace()
+	
 	xnum = (np.array(range(n_error))+1)*m_error
 	fig = plt.figure(figsize=(10, 10))
 	plt.plot(xnum,1-np.array(e_trains),xnum,1-np.array(e_tests))
-	font = {'family' : 'normal',
-		'weight' : 'bold',
-		'size'   : 8}
-	plt.rc('font', **font)
-	plt.title(mod)
+	plt.title(mod,fontsize=8)
+	plt.ylim([-0.1,0.8])
+	plt.xlim([0,len(labels)])
+	plt.xlabel('training samples',fontsize=18)
+	plt.ylabel('error',fontsize=18)
+	plt.grid()
 	plt.draw()
+
+def pca(filenames, wins_, labels, mod):	
+	labels = np.array(labels)
+	labels_set = [l[:4].lower() for l in filenames]
+	
+	train = np.random.rand(len(wins_)) < .8
+	
+	m, v = np.mean(wins_[train], 0), np.var(wins_[train], 0)
+	# scale = lambda X: (X - m) / s
+
+	# mod = sklearn.linear_model.LogisticRegression(C=.7).fit(wins_[train], labels[train])
+	# mod = sklearn.svm.SVC(kernel='rbf', C=.56).fit(wins_[train], labels[train])
+	# print sklearn.metrics.confusion_matrix(labels[train], mod.predict(wins_[train]))
+	# print sklearn.metrics.classification_report(labels[train], mod.predict(wins_[train]))
+	# print sklearn.metrics.confusion_matrix(labels[~train], mod.predict(wins_[~train]))
+	# print sklearn.metrics.classification_report(labels[~train], mod.predict(wins_[~train]))
+	
+	u, s, v = np.linalg.svd(wins_)
+	X = sklearn.manifold.TSNE().fit_transform(u[:, :33])
+	# V, S, U_t = np.linalg.svd(wins_)
+	# X = V[:, :2]
+	
+	colors = ['r', 'g', 'b', 'y', 'k']
+	plt.figure()
+	plt.scatter(X[:, 0], X[:, 1],
+		c=[colors[labels_set.index(label)] for label in labels])
+	plt.figure()
+	plt.scatter(u[:, 0], u[:, 1],
+		c=[colors[labels_set.index(label)] for label in labels])
+	# plt.show()
 
 def plot_confusion_matrix(pred, labels, title='Confusion matrix', cmap=plt.cm.Blues):
 	labels_set = list(np.unique(labels))
@@ -672,41 +729,23 @@ def plot_confusion_matrix(pred, labels, title='Confusion matrix', cmap=plt.cm.Bl
 
 if __name__ == "__main__":
 
-	# if len(sys.argv) > 1:
-	# 	filename = sys.argv[1]
-	# 	soundfile, fs, N = open_wavefile(filename, rms=default_options['rms'])
-	# else:
-	# 	print "no user input"
-	# 	sys.exit(1)
-
-	# filenames = (
-	# 	'Lathrop Noisy.wav',
-	# 	'Caltrain 2.wav',
-	# 	# 'Lecture Hall Chatter.wav',
-	# 	# 'Homestead Rd.wav',
-	# 	# 'Sunnyvale Station.wav',
-	# 	# 'Applause_-_enthusiastic2.wav',
-	# 	# 'Bubbling_water.wav',
-	# 	# 'Writing_with_pen_on_paper.wav',
-	# 	# 'white_noise_5s.wav',
-	# 	# 'chamber-choir-parallel-fifths.wav',
-
-	# )
-
-	filenames = tuple([fname for fname in os.listdir('wavefiles') if fname[-3:] == 'wav'])
+	filenames = tuple([fname for fname in os.listdir('../wavefiles') if fname[-3:] == 'wav'])
 	print filenames
-	# map(lambda x: open_wavefile('wavefiles/' + x), filenames)
-
+	# map(lambda x: open_wavefile('../wavefiles/' + x), filenames)
 
 	winlen = 7;
 
-	header, wins, labels = get_features(filenames, 2000, winlen, downsample=7,
-		# redo = True
+	# ipdb.set_trace()
+
+	header, wins, labels, meta = get_features(filenames, 2000, winlen, downsample=7,
+		redo = True
 	)
+
 	nwins = wins.shape[0]
 	wins = wins[np.isfinite(wins).all(1)]
 	print 'eliminated %s rows due to nan' % (nwins - wins.shape[0])
-	# import ipdb; ipdb.set_trace()
+	# ipdb.set_trace()
+
 	print wins.shape
 	m, s = np.mean(wins, 0), np.std(wins, 0)
 	if wins.shape[0] > 1:  # for the case when there is a single window (validation purposes)
@@ -727,10 +766,11 @@ if __name__ == "__main__":
 		('SVM, rbf kernel, 1.0 regularization', sklearn.svm.SVC(kernel='rbf')),
 
 	]
+
 	subsets = [
-		('subband correlations', 'subband'),
-		('pre-modulation moments', 'a_'),
-		('modulated', 'e_'),
+		# ('subband correlations', 'subband'),
+		# ('pre-modulation moments', 'a_'),
+		# ('modulated', 'e_'),
 		('all_features', ''),
 		]
 
@@ -744,11 +784,11 @@ if __name__ == "__main__":
 		print wins_.shape
 
 		for i, (mod_name, mod) in enumerate(mods):
-			
 			print mod
-			mod, train_mask = train_test(mod, wins_, labels, mod_name+fname,
-				# redo=True
+			mod, train_mask = train_test(mod, wins_, labels, mod_name+fname, meta
+				redo=True
 			)
+			
 			e_train, e_test = print_mod_results(mod, wins_, labels, train_mask)
 			mods_trained[mod_name] = mod
 			res_train.loc[mod_name, fname] = e_train
@@ -760,6 +800,7 @@ if __name__ == "__main__":
 			mod.predict(wins_[~train_mask]), labels[~train_mask], 
 				title=title)
 			plt.savefig('figures/confusions/' + title + '.png')
+
 	
 	res_train.loc['avg'] = res_train.mean(0)		
 	# plt.matshow(res, cmap=plt.get_cmap('summer')); plt.colorbar()
@@ -774,51 +815,3 @@ if __name__ == "__main__":
 
 
 
-	cm_mod =  'logistic regression, 1.0 regularization'
-	plot_confusion_matrix(
-		mod.predict(wins_[~train_mask]), labels[~train_mask], 
-		title=cm_mod)
-	
-	# print res
-	# plt.ion()
-	# plt.show()
-	import ipdb; ipdb.set_trace()
-
-	#
-	#
-	# labels = np.array(labels)
-	# labels_set = [l[:4].lower() for l in filenames]
-	#
-	# train = np.random.rand(len(wins)) < .8
-	#
-	# m, v = np.mean(wins[train], 0), np.var(wins[train], 0)
-	# # scale = lambda X: (X - m) / s
-	# mod = sklearn.linear_model.LogisticRegression(C=.7).fit(wins[train], labels[train])
-	# # mod = sklearn.svm.SVC(kernel='rbf', C=.56).fit(wins[train], labels[train])
-	# print sklearn.metrics.confusion_matrix(labels[train], mod.predict(wins[train]))
-	# print sklearn.metrics.classification_report(labels[train], mod.predict(wins[train]))
-	# print sklearn.metrics.confusion_matrix(labels[~train], mod.predict(wins[~train]))
-	# print sklearn.metrics.classification_report(labels[~train], mod.predict(wins[~train]))
-	#
-	# u, s, v = np.linalg.svd(wins)
-	# X = sklearn.manifold.TSNE().fit_transform(u[:, :33])
-	# # V, S, U_t = np.linalg.svd(wins)
-	# # X = V[:, :2]
-	#
-	# colors = ['r', 'g', 'b', 'y', 'k']
-	# plt.figure()
-	# plt.scatter(X[:, 0], X[:, 1],
-	# 	c=[colors[labels_set.index(label)] for label in labels])
-	# plt.figure()
-	# plt.scatter(u[:, 0], u[:, 1],
-	# 	c=[colors[labels_set.index(label)] for label in labels])
-	# # plt.show()
-	# print wins
-	#
-	#
-	#
-	#
-	#
-	#
-	#
-	#
