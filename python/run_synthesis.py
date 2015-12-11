@@ -592,9 +592,7 @@ def get_features(filenames, limit, winlen, downsample=1):
 		wins.extend(ws)
 		labels.extend(ls)
 
-
-	headers, wins, labels = zip(*results)
-	return headers[0], np.array(sum(wins, [])), np.array(sum(labels, [])), meta
+	return header, np.array(wins), np.array(labels), np.array(meta)
 
 	
 	# for filename in filenames:
@@ -607,28 +605,41 @@ def get_features(filenames, limit, winlen, downsample=1):
 	# return header, np.array(wins), np.array(labels)	
 
 @cache_to_disk
-def train_test(mod, X, y, model_name, meta):
+def train_mask(y, meta):
 	lab_fn = {}
 	for label, filename in zip(y, meta):
-		lab_fn[label] = lab_fn.get(label, []) + [fname]
+		lab_fn[label] = lab_fn.get(label, set()) | {fname}
 
 	test_fs = {}
 	for label, fnames in lab_fn.iteritems():
 		if len(fnames) > 1:
-			test_fs[label] = fnames[np.random.random_integer(len(fnames)) - 1]
+			test_fs[label] = list(fnames)[np.random.random_integer(len(fnames)) - 1]
 
-	train_ = np.zeros(X.shape[0]).astype(bool)
-	for i in xrange(X.shape[0]):
+	train = np.zeros(y.shape[0]).astype(bool)
+	val = np.zeros(y.shape[0]).astype(bool)
+	test = np.zeros(y.shape[0]).astype(bool) 
+	for i in xrange(y.shape[0]):
 		label = labels[i]
 		source = meta[i]
 		fnames = lab_fn[label]
 		if len(fnames) > 1:
-			train_[i] = source != test_fs[label]
+			train[i] = source != test_fs[label]
 		else:
-			train_[i] = np.random.rand() < .8
-	test = ~train
-	mod.fit(X[train], y[train])
-	return mod, train
+			train[i] = np.random.rand() < .8
+		test[i] = not train[i]
+		if train[i]:
+			v = np.random.rand() < .15
+			val[i] = v
+			train[i] = not v
+
+
+
+	return train, val, test, test_fs
+
+@cache_to_disk
+def run_model(mod, X, y, name):
+	mod.fit(X, y)
+	return mod
 	
 def print_mod_results(mod, X, y, train):
 
@@ -732,17 +743,22 @@ if __name__ == "__main__":
 	filenames = tuple([fname for fname in os.listdir('../wavefiles') if fname[-3:] == 'wav'])
 	print filenames
 	# map(lambda x: open_wavefile('../wavefiles/' + x), filenames)
+	# ipdb.set_trace()
 
 	winlen = 7;
 
 	# ipdb.set_trace()
 
 	header, wins, labels, meta = get_features(filenames, 2000, winlen, downsample=7,
-		redo = True
+		# redo = True
 	)
-
 	nwins = wins.shape[0]
-	wins = wins[np.isfinite(wins).all(1)]
+	fin_mask = np.isfinite(wins).all(1)
+	wins = wins[fin_mask]
+	labels = labels[fin_mask]
+	meta = meta[fin_mask]
+	n_labels = len(np.unique(labels))
+	
 	print 'eliminated %s rows due to nan' % (nwins - wins.shape[0])
 	# ipdb.set_trace()
 
@@ -762,8 +778,9 @@ if __name__ == "__main__":
 		('decision tree, no max depth', sklearn.tree.DecisionTreeClassifier()),
 		('logistic regression, 0.7 regularization', sklearn.linear_model.LogisticRegression(C=.7)),
 		('logistic regression, 1.0 regularization', sklearn.linear_model.LogisticRegression()),
-		('SVM, rbf kernel, .5 regularization', sklearn.svm.SVC(kernel='rbf', C=.5)),
-		('SVM, rbf kernel, 1.0 regularization', sklearn.svm.SVC(kernel='rbf')),
+		('SVM, rbf kernel, .5 regularization', sklearn.svm.SVC(kernel='rbf', C=.5, probability=True)),
+		('SVM, rbf kernel, 1.0 regularization', sklearn.svm.SVC(kernel='rbf', probability=True)),
+		('GradientBoostingClassifier', sklearn.ensemble.GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=2)),
 
 	]
 
@@ -776,6 +793,11 @@ if __name__ == "__main__":
 
 	mods_trained = {}
 	# print header
+	train_mask, val_mask, test_mask, test_fs = train_mask(labels, meta,
+		# redo=True
+	)
+	prob_pred = np.zeros((wins.shape[0], len(mods) * n_labels))
+	print 'test_fs: ', test_fs
 	res_train = pd.DataFrame(np.zeros((len(mods), len(subsets))), index=zip(*mods)[0], columns=zip(*subsets)[0])
 	res_test = pd.DataFrame(np.zeros((len(mods), len(subsets))), index=zip(*mods)[0], columns=zip(*subsets)[0])
 	for j, (fname, feat) in enumerate(subsets):
@@ -785,10 +807,11 @@ if __name__ == "__main__":
 
 		for i, (mod_name, mod) in enumerate(mods):
 			print mod
-			mod, train_mask = train_test(mod, wins_, labels, mod_name+fname, meta
-				redo=True
+			# ipdb.set_trace()
+			mod = run_model(mod, wins_[train_mask], labels[train_mask], mod_name+fname,
+				# redo=True
 			)
-			
+			prob_pred[:, i*n_labels:(i+1)*n_labels] = mod.predict_proba(wins_)
 			e_train, e_test = print_mod_results(mod, wins_, labels, train_mask)
 			mods_trained[mod_name] = mod
 			res_train.loc[mod_name, fname] = e_train
@@ -797,9 +820,26 @@ if __name__ == "__main__":
 
 			title = '%s__%s' % (fname, mod_name)
 			plot_confusion_matrix(
-			mod.predict(wins_[~train_mask]), labels[~train_mask], 
+			mod.predict(wins_[test_mask]), labels[test_mask], 
 				title=title)
 			plt.savefig('figures/confusions/' + title + '.png')
+
+		print 'ENSEMBLE'
+		mod_name = 'ENSEMBLE'
+		mod = sklearn.ensemble.GradientBoostingClassifier(n_estimators=100, learning_rate=1.0, max_depth=2)
+		mod = run_model(mod, prob_pred[val_mask], labels[val_mask], fname+'ENSEMBLE')
+		val_or_test = np.logical_or(val_mask, test_mask)
+		e_train, e_test = print_mod_results(mod, prob_pred, labels, val_or_test)
+		mods_trained[mod_name] = mod
+		res_train.loc[mod_name, fname] = e_train
+		res_test.loc[mod_name, fname] = e_test
+		print '\n\n'
+		title = '%s__%s' % (fname, mod_name)
+		plot_confusion_matrix(
+		mod.predict(wins_[test_mask]), labels[test_mask], 
+			title=title)
+		plt.savefig('figures/confusions/' + title + '.png')
+
 
 	
 	res_train.loc['avg'] = res_train.mean(0)		
