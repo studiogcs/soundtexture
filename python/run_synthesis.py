@@ -304,11 +304,11 @@ def open_wavefile(filename, target_rms=.01):
         num_chan = dim[1]
         for c in range(0, num_chan):
             rms = np.sqrt(np.mean(np.square(x[:, c])))
-            x[:, c] = 1. * x[:, c] / rms * target_rms
+            x[:, c] = 1. * x[:, c] / rms * target_rms + np.random.rand(x.shape[0])*1e-20 # adding noise for files with fake zero data
     else:
         # x = x[0:140000] # debug: comment out
         rms = np.sqrt(np.mean(np.square(x)))
-        x = 1. * x / rms * target_rms
+        x = 1. * x / rms * target_rms + np.random.rand(x.shape[0])*1e-20 # adding noise for files with fake zero data
 
     num_frames = x.shape[0]
 
@@ -639,6 +639,7 @@ def cumulative_train(wins_, labels, mod, n_error, model_name):
     m_error = len(labels) / n_error;  # generate n_error points of training error data
     e_tests = [0] * n_error;
     e_trains = [0] * n_error;
+    # ipdb.set_trace()
     for i in xrange(n_error):
         wins_e = wins_[i_rand[0:(i + 1) * m_error], :]
         labels_e = labels[i_rand[0:(i + 1) * m_error]]
@@ -781,7 +782,7 @@ if __name__ == "__main__":
             res_train.loc[mod_name, fname] = e_train
             res_test.loc[mod_name, fname] = e_test
             print '\n\n'
-            cumulative_train(wins_, labels, mod, 5, mod_name + fname)
+            cumulative_train(wins_, labels, mod, 3, mod_name + fname)
 
     res_train.loc['avg'] = res_train.mean(0)
     # plt.matshow(res, cmap=plt.get_cmap('summer')); plt.colorbar()
