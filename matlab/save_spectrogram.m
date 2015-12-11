@@ -5,6 +5,7 @@ save_path = '../figures/spectrograms/';
 
 w_len = 512;    % window length
 t = 10;    % length of displayed signal in seconds
+rms_target = 0.01;
 
 if size(varargin) > 0
     file_path = varargin(1);
@@ -18,6 +19,7 @@ if isdir(file_path)
     for i = 1:size(d)
         [x, fs] = audioread([file_path d(i).name]); 
         x = x(find(x ~= 0,1):end,1);
+        x = x .* rms_target / rms(x);
         x = x(1:t*fs); % take first t seconds of left channel only
         w = hanning(w_len);
         fig = figure(i);
