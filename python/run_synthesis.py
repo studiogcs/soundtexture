@@ -570,6 +570,7 @@ def featurize_clos(downsample, limit, winlen, filename):
 def get_features(filenames, limit, winlen, downsample=1):
 	wins = []
 	labels = []
+	meta = []
 	# import ipdb; ipdb.set_trace()
 	
 	import multiprocessing, functools
@@ -577,8 +578,15 @@ def get_features(filenames, limit, winlen, downsample=1):
 	f = functools.partial(featurize_clos, downsample, limit, winlen)
 	results = pool.map(f, filenames)
 	pool.close(); pool.join()
+	for name, result in zip(filenames, results):
+		header, ws, ls = result
+		meta.extend([name]*len(ws))
+		wins.extend(ws)
+		labels.extend(ls)
+
+
 	headers, wins, labels = zip(*results)
-	return headers[0], np.array(sum(wins, [])), np.array(sum(labels, []))
+	return headers[0], np.array(sum(wins, [])), np.array(sum(labels, [])), meta
 
 	
 	# for filename in filenames:
