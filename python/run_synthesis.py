@@ -16,10 +16,12 @@ import sklearn.manifold
 import sklearn.ensemble
 import sklearn.tree
 import sklearn.linear_model
+from sklearn.decomposition import PCA
 import sklearn.svm
 import pandas as pd
 
 from matplotlib import pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import ipdb  # DEBUG
 
 import wavio
@@ -178,7 +180,7 @@ class Compute(object):
                     self.subband_resampled[:, i],
                     self.corr_filters, self.options['corr_env_intervals'], self.w)
             self.mod_power[i, :] = modulation_power(self.subband_resampled[:, i], self.mod_filters, self.w)
-        # ipdb.set_trace()
+        ipdb.set_trace()
 
 
 
@@ -546,7 +548,7 @@ def cache_to_disk(f):
     return wrapped
 
 
-@cache_to_disk
+# @cache_to_disk
 def featurize_file(downsample, filename, limit, winlen):
     wins = []
     labels = []
@@ -571,12 +573,12 @@ def featurize_file(downsample, filename, limit, winlen):
     for i in xrange(min(limit, n_wins)):
         stats = Compute(soundfile[i * stride:i * stride + win_size], fs, **default_options)
         stats.make_stats()
-
+        stats.display(stats,None)
         header = stats.feat_header()
         wins.append(stats.features())
         labels.append(label)
+    # ipdb.set_trace()
 
-    # stats.display(0, None)
     # stats.plots()
     return header, wins, labels
 
@@ -585,31 +587,31 @@ def featurize_clos(downsample, limit, winlen, filename):
     return featurize_file(downsample, filename, limit, winlen)
 
 
-@cache_to_disk
+# @cache_to_disk
 def get_features(filenames, limit, winlen, downsample=1):
     wins = []
     labels = []
 
     # ipdb.set_trace()
 
-    import multiprocessing, functools
-    pool = multiprocessing.Pool(processes=6)
-    f = functools.partial(featurize_clos, downsample, limit, winlen)
-    results = pool.map(f, filenames)
-    pool.close();
-    pool.join()
-    headers, wins, labels = zip(*results)
-    return headers[0], np.array(sum(wins, [])), np.array(sum(labels, []))
+    # import multiprocessing, functools
+    # pool = multiprocessing.Pool(processes=6)
+    # f = functools.partial(featurize_clos, downsample, limit, winlen)
+    # results = pool.map(f, filenames)
+    # pool.close();
+    # pool.join()
+    # headers, wins, labels = zip(*results)
+    # return headers[0], np.array(sum(wins, [])), np.array(sum(labels, []))
 
 
-    # for filename in filenames:
-    #     # extract features
-    #     header, wins_, labels_ = featurize_file(downsample, filename, limit, winlen,
-    #         # redo=True
-    #         )
-    #     wins.extend(wins_)
-    #     labels.extend(labels_)
-    # return header, np.array(wins), np.array(labels)
+    for filename in filenames:
+        # extract features
+        header, wins_, labels_ = featurize_file(downsample, filename, limit, winlen,
+            # redo=True
+            )
+        wins.extend(wins_)
+        labels.extend(labels_)
+    return header, np.array(wins), np.array(labels)
 
 @cache_to_disk
 def train_test(mod, X, y, model_name):
@@ -666,9 +668,10 @@ def cumulative_train(wins_, labels, mod, n_error, model_name):
     plt.draw()
 
 
-def pca(filenames, wins_, labels, mod):
+def pca3d(filenames, wins_, labels):
     labels = np.array(labels)
-    labels_set = [l[:4].lower() for l in filenames]
+    # labels_set = [l[:4].lower() for l in filenames]
+    labels_set = list(set(l[:4].lower() for l in filenames))
 
     train = np.random.rand(len(wins_)) < .8
 
@@ -683,19 +686,47 @@ def pca(filenames, wins_, labels, mod):
     # print sklearn.metrics.classification_report(labels[~train], mod.predict(wins_[~train]))
 
     u, s, v = np.linalg.svd(wins_)
-    X = sklearn.manifold.TSNE().fit_transform(u[:, :33])
+    # X = sklearn.manifold.TSNE().fit_transform(u[:, :33])
+    # X = sklearn.manifold.TSNE(n_components=3).fit_transform(u)
+    X = sklearn.manifold.TSNE(n_components=3, perplexity=60).fit_transform(u[:, :30])
     # V, S, U_t = np.linalg.svd(wins_)
     # X = V[:, :2]
-
-    colors = ['r', 'g', 'b', 'y', 'k']
-    plt.figure()
-    plt.scatter(X[:, 0], X[:, 1],
+    # ipdb.set_trace()
+    colors = ['r', 'g', 'b', 'c', 'm', 'y', 'k']
+    fig = plt.figure()
+    ax1 = fig.add_subplot(121, projection='3d')
+    ax1.scatter(X[:, 0], X[:, 1], X[:, 2],
                 c=[colors[labels_set.index(label)] for label in labels])
-    plt.figure()
-    plt.scatter(u[:, 0], u[:, 1],
+    ax2 = fig.add_subplot(122, projection='3d')
+    ax2.scatter(u[:, 0], u[:, 1], u[:, 2],
                 c=[colors[labels_set.index(label)] for label in labels])
+    plt.legend()
+    # ipdb.set_trace()
 
+def pca2d(filenames, wins_, labels):
+    labels = np.array(labels)
+    # labels_set = [l[:4].lower() for l in filenames]
+    labels_set = list(set(l[:4].lower() for l in filenames))
 
+    train = np.random.rand(len(wins_)) < .8
+
+    m, v = np.mean(wins_[train], 0), np.var(wins_[train], 0)
+    # scale = lambda X: (X - m) / s
+
+    u, s, v = np.linalg.svd(wins_)
+
+    X = sklearn.manifold.TSNE(n_components=2, perplexity=60).fit_transform(u[:, :30])
+
+    colors = ['r', 'g', 'b', 'c', 'm', 'y', 'k']
+    fig = plt.figure()
+    ax1 = fig.add_subplot(121)
+    ax1.scatter(X[:, 0], X[:, 1],
+                c=[colors[labels_set.index(label)] for label in labels])
+    ax2 = fig.add_subplot(122)
+    ax2.scatter(u[:, 0], u[:, 1],
+                c=[colors[labels_set.index(label)] for label in labels])
+    plt.legend()
+    # ipdb.set_trace()
 # plt.show()
 
 def plot_confusion_matrix(pred, labels, title='Confusion matrix', cmap=plt.cm.Blues):
@@ -734,31 +765,50 @@ if __name__ == "__main__":
     nwins = wins.shape[0]
     wins = wins[np.isfinite(wins).all(1)]
     print 'eliminated %s rows due to nan' % (nwins - wins.shape[0])
-    # ipdb.set_trace()
 
     print wins.shape
     m, s = np.mean(wins, 0), np.std(wins, 0)
     if wins.shape[0] > 1:  # for the case when there is a single window (validation purposes)
         wins = (wins - m) / s
 
+    # perform PCA analysis on the data
+    # pca_py = PCA(n_components = 'mle')
+    pca_py = PCA()
+    pca_py.fit(wins)
+    fig = plt.figure(figsize=(10, 10))
+    plt.semilogy(pca_py.explained_variance_ratio_,linewidth=2)
+    plt.grid()
+    plt.draw()
+    fig = plt.figure(figsize=(10, 10))
+    plt.plot(np.cumsum(pca_py.explained_variance_ratio_),linewidth=2)
+    plt.grid()
+    plt.draw()
+
+    pca3d(filenames, wins, labels)
+    pca2d(filenames, wins, labels)
+
+    plt.show()
+
+    # ipdb.set_trace()
+
     mods = [
-        ('random forest 4 trees', sklearn.ensemble.RandomForestClassifier(n_estimators=4, n_jobs=7)),
-        ('random forest 20 trees', sklearn.ensemble.RandomForestClassifier(n_estimators=20, n_jobs=7)),
-        ('random forest 50 trees', sklearn.ensemble.RandomForestClassifier(n_estimators=50, n_jobs=7)),
-        ('decision tree, max depth 3', sklearn.tree.DecisionTreeClassifier(max_depth=3)),
-        ('decision tree, max depth 2', sklearn.tree.DecisionTreeClassifier(max_depth=2)),
-        ('decision tree, no max depth', sklearn.tree.DecisionTreeClassifier()),
+        #('random forest 4 trees', sklearn.ensemble.RandomForestClassifier(n_estimators=4, n_jobs=7)),
+        #('random forest 20 trees', sklearn.ensemble.RandomForestClassifier(n_estimators=20, n_jobs=7)),
+        #('random forest 50 trees', sklearn.ensemble.RandomForestClassifier(n_estimators=50, n_jobs=7)),
+        #('decision tree, max depth 3', sklearn.tree.DecisionTreeClassifier(max_depth=3)),
+        #('decision tree, max depth 2', sklearn.tree.DecisionTreeClassifier(max_depth=2)),
+        #('decision tree, no max depth', sklearn.tree.DecisionTreeClassifier()),
         ('logistic regression, 0.7 regularization', sklearn.linear_model.LogisticRegression(C=.7)),
-        ('logistic regression, 1.0 regularization', sklearn.linear_model.LogisticRegression()),
-        ('SVM, rbf kernel, .5 regularization', sklearn.svm.SVC(kernel='rbf', C=.5)),
-        ('SVM, rbf kernel, 1.0 regularization', sklearn.svm.SVC(kernel='rbf')),
+        #('logistic regression, 1.0 regularization', sklearn.linear_model.LogisticRegression()),
+        #('SVM, rbf kernel, .5 regularization', sklearn.svm.SVC(kernel='rbf', C=.5)),
+        #('SVM, rbf kernel, 1.0 regularization', sklearn.svm.SVC(kernel='rbf')),
 
     ]
 
     subsets = [
-        # ('subband correlations', 'subband'),
-        # ('pre-modulation moments', 'a_'),
-        # ('modulated', 'e_'),
+        #('subband correlations', 'subband'),
+        #('pre-modulation moments', 'a_'),
+        #('modulated', 'e_'),
         ('all_features', ''),
     ]
 
@@ -782,7 +832,7 @@ if __name__ == "__main__":
             res_train.loc[mod_name, fname] = e_train
             res_test.loc[mod_name, fname] = e_test
             print '\n\n'
-            cumulative_train(wins_, labels, mod, 3, mod_name + fname)
+            # cumulative_train(wins_, labels, mod, 2, mod_name + fname)
 
     res_train.loc['avg'] = res_train.mean(0)
     # plt.matshow(res, cmap=plt.get_cmap('summer')); plt.colorbar()
