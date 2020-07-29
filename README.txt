@@ -1,23 +1,25 @@
-README.txt
 
-- relevant sites
-	http://mcdermottlab.mit.edu/downloads.html
 
-- files
-	McDermott: contains sound synthesis texture toolbox (Matlab)
+# Relevant sites
 
-- RECORDINGS: ~10-20min
-	- coffee shop/restaurant
-	- caltrain
-		- from platform
-		- within train
-	- memchu
-	- library
-	- running water
-	- crickets
-	- traffic
+http://mcdermottlab.mit.edu/downloads.html
 
-PROCEDURE
+# Files
+
+McDermott: contains sound synthesis texture toolbox (Matlab)
+
+Recordings: ~10-20min
+- coffee shop/restaurant
+- caltrain
+	- from platform
+	- within train
+- memchu
+- library
+- running water
+- crickets
+- traffic
+
+# Procedure
 
 - use stationary signals
 - for each signal, keep duration fixed (t = 1.5 s)
